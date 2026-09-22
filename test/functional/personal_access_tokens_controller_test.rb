@@ -48,6 +48,12 @@ class PersonalAccessTokensControllerTest < Redmine::ControllerTest
     assert_select "tr#personal-access-token-#{other.id}", 0
   end
 
+  def test_index_should_not_render_empty_class_attribute_for_active_tokens
+    token = create_token
+    get :index
+    assert_select "tr#personal-access-token-#{token.id}[class]", 0
+  end
+
   def test_index_should_mark_expired_tokens
     token = create_token
     PersonalAccessToken.where(:id => token.id).update_all(:expires_on => 1.day.ago)
@@ -125,6 +131,24 @@ class PersonalAccessTokensControllerTest < Redmine::ControllerTest
     end
     assert_response :success
     assert_select 'pre#personal-access-token-value', 1
+  end
+
+  def test_create_should_deliver_exactly_one_mail_to_owner
+    assert_difference 'ActionMailer::Base.deliveries.size', 1 do
+      post :create, :params => {:personal_access_token => {:name => 'Deploy', :expiration_date => (@user.today + 10).iso8601}}
+    end
+    mail = ActionMailer::Base.deliveries.last
+    assert_equal [@user.mail], mail.to
+  end
+
+  def test_destroy_should_deliver_exactly_one_mail_to_owner
+    token = create_token
+    ActionMailer::Base.deliveries.clear
+    assert_difference 'ActionMailer::Base.deliveries.size', 1 do
+      delete :destroy, :params => {:id => token.id}
+    end
+    mail = ActionMailer::Base.deliveries.last
+    assert_equal [@user.mail], mail.to
   end
 
   def test_destroy_own_token

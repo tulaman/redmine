@@ -16,16 +16,8 @@
   </tr></thead>
   <tbody>
   <% @personal_access_tokens.each do |token| %>
-    <tr id="personal-access-token-<%= token.id %>" class="<%= 'expired' if token.expired? %>">
-      <td class="name"><%= token.name %></td>
-      <td class="token"><code><%= token.masked_value %></code></td>
-      <td class="created_on"><%= format_time(token.created_on) %></td>
-      <td class="expires_on">
-        <%= format_time(token.expires_on) %>
-        <% if token.expired? %>(<%= l(:label_personal_access_token_expired) %>)<% end %>
-      </td>
-      <td class="buttons"><%= delete_link personal_access_token_path(token) %></td>
-    </tr>
+    <%= render :partial => 'personal_access_token',
+               :locals => {:personal_access_token => token, :show_user => false, :delete_path => personal_access_token_path(token)} %>
   <% end %>
   </tbody>
 </table>

@@ -77,12 +77,18 @@ class PersonalAccessTokenTest < ActiveSupport::TestCase
   end
 
   def test_name_should_be_unique_per_user_case_insensitively
-    create_token(:name => 'Deploy')
-    token = PersonalAccessToken.new(:user => @user, :name => 'deploy', :expiration_date => @user.today + 1)
-    assert_not token.save
-    assert_include :name, token.errors.attribute_names
-    other_user = User.find(3)
-    assert PersonalAccessToken.new(:user => other_user, :name => 'deploy', :expiration_date => other_user.today + 1).save
+    # freeze_time avoids a midnight rollover between the two calls to #today
+    # below and the ones #save makes internally while validating
+    # expiration_date, which could otherwise turn the final, expected-to-pass
+    # #save into a spurious :greater_than expiration_date failure.
+    freeze_time do
+      create_token(:name => 'Deploy')
+      token = PersonalAccessToken.new(:user => @user, :name => 'deploy', :expiration_date => @user.today + 1)
+      assert_not token.save
+      assert_include :name, token.errors.attribute_names
+      other_user = User.find(3)
+      assert PersonalAccessToken.new(:user => other_user, :name => 'deploy', :expiration_date => other_user.today + 1).save
+    end
   end
 
   def test_expiration_date_should_be_required

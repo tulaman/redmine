@@ -843,4 +843,12 @@ class MyControllerTest < Redmine::ControllerTest
       assert_select 'div.contextual a[href=?]', '/my/personal_access_tokens', 0
     end
   end
+
+  # A normal web session is not a personal access token, so it must keep
+  # being able to change the account's own email address.
+  def test_put_account_with_session_should_still_allow_mail_change
+    put :account, :params => {:user => {:mail => 'jsmith-new@somenet.foo'}}
+    assert_redirected_to '/my/account'
+    assert_equal 'jsmith-new@somenet.foo', User.find(2).reload.mail
+  end
 end

@@ -29,20 +29,9 @@
   </tr></thead>
   <tbody>
   <% @personal_access_tokens.each do |token| %>
-    <%= content_tag :tr, :id => "personal-access-token-#{token.id}", :class => ('expired' if token.expired?) do %>
-      <td class="user">
-        <%= link_to_user token.user %>
-        <% unless token.user.active? %>(<%= l("status_#{User::LABEL_BY_STATUS[token.user.status]}") %>)<% end %>
-      </td>
-      <td class="name"><%= token.name %></td>
-      <td class="token"><code><%= token.masked_value %></code></td>
-      <td class="created_on"><%= format_time(token.created_on) %></td>
-      <td class="expires_on">
-        <%= format_time(token.expires_on) %>
-        <% if token.expired? %>(<%= l(:label_personal_access_token_expired) %>)<% end %>
-      </td>
-      <td class="buttons"><%= delete_link admin_personal_access_token_path(token, :back_url => request.fullpath) %></td>
-    <% end %>
+    <%= render :partial => 'personal_access_tokens/personal_access_token',
+               :locals => {:personal_access_token => token, :show_user => true,
+                           :delete_path => admin_personal_access_token_path(token, :back_url => request.fullpath)} %>
   <% end %>
   </tbody>
 </table>

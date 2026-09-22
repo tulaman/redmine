@@ -139,6 +139,12 @@ class AdminPersonalAccessTokensControllerTest < Redmine::ControllerTest
     assert_select "tr#personal-access-token-#{@dlopper_token.id} td.user", :text => /locked/
   end
 
+  def test_index_menu_item_should_use_server_authentication_icon
+    # Matches the icon used by the equivalent link under My account.
+    get :index
+    assert_select '#admin-menu a.icon-server-authentication[href=?]', '/admin/personal_access_tokens'
+  end
+
   def test_index_should_require_admin
     @request.session[:user_id] = 2
     get :index
@@ -159,6 +165,12 @@ class AdminPersonalAccessTokensControllerTest < Redmine::ControllerTest
     assert_equal [User.find(2).mail], mail.to
     assert_mail_body_match 'Personal access token jsmith CI was removed.', mail
     assert_equal 'admin', mail.header['X-Redmine-Sender'].to_s
+  end
+
+  def test_destroy_should_deliver_exactly_one_mail_to_owner
+    assert_difference 'ActionMailer::Base.deliveries.size', 1 do
+      delete :destroy, :params => {:id => @jsmith_token.id}
+    end
   end
 
   def test_destroy_unknown_token_should_respond_with_404

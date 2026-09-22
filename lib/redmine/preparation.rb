@@ -288,8 +288,8 @@ module Redmine
         menu.push :personal_access_tokens, {:controller => 'admin_personal_access_tokens', :action => 'index'},
                   :if => Proc.new { Setting.rest_api_enabled? },
                   :caption => :label_personal_access_token_plural,
-                  :icon => 'key',
-                  :html => {:class => 'icon icon-key'}
+                  :icon => 'server-authentication',
+                  :html => {:class => 'icon icon-server-authentication'}
         menu.push :plugins, {:controller => 'admin', :action => 'plugins'},
                   :last => true,
                   :icon => 'plugins',
