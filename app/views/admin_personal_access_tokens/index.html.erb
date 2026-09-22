@@ -1,0 +1,53 @@
+<%= title l(:label_personal_access_token_plural) %>
+
+<%= form_tag(admin_personal_access_tokens_path, :method => :get) do %>
+<fieldset><legend><%= l(:label_filter_plural) %></legend>
+  <label for="status"><%= l(:field_status) %>:</label>
+  <%= select_tag 'status',
+                 options_for_select([[l(:label_all), ''],
+                                     [l(:label_personal_access_token_active), 'active'],
+                                     [l(:label_personal_access_token_expired), 'expired']], params[:status]),
+                 :class => 'small' %>
+  <label for="user"><%= l(:label_user) %>:</label>
+  <%= text_field_tag 'user', params[:user], :size => 30 %>
+  <%= submit_tag l(:button_apply), :class => 'small', :name => nil %>
+  <%= link_to sprite_icon('reload', l(:button_clear)), admin_personal_access_tokens_path, :class => 'icon icon-reload' %>
+</fieldset>
+<% end %>
+&nbsp;
+
+<% if @personal_access_tokens.any? %>
+<div class="autoscroll">
+<table class="list personal-access-tokens">
+  <thead><tr>
+    <th><%= l(:label_user) %></th>
+    <th><%= l(:field_name) %></th>
+    <th><%= l(:field_token) %></th>
+    <th><%= l(:field_created_on) %></th>
+    <th><%= l(:field_expires_on) %></th>
+    <th></th>
+  </tr></thead>
+  <tbody>
+  <% @personal_access_tokens.each do |token| %>
+    <%= content_tag :tr, :id => "personal-access-token-#{token.id}", :class => ('expired' if token.expired?) do %>
+      <td class="user">
+        <%= link_to_user token.user %>
+        <% unless token.user.active? %>(<%= l("status_#{User::LABEL_BY_STATUS[token.user.status]}") %>)<% end %>
+      </td>
+      <td class="name"><%= token.name %></td>
+      <td class="token"><code><%= token.masked_value %></code></td>
+      <td class="created_on"><%= format_time(token.created_on) %></td>
+      <td class="expires_on">
+        <%= format_time(token.expires_on) %>
+        <% if token.expired? %>(<%= l(:label_personal_access_token_expired) %>)<% end %>
+      </td>
+      <td class="buttons"><%= delete_link admin_personal_access_token_path(token, :back_url => request.fullpath) %></td>
+    <% end %>
+  <% end %>
+  </tbody>
+</table>
+</div>
+<span class="pagination"><%= pagination_links_full @personal_access_token_pages, @personal_access_token_count %></span>
+<% else %>
+<p class="nodata"><%= l(:label_no_data) %></p>
+<% end %>

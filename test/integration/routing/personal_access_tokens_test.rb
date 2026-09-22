@@ -26,4 +26,9 @@ class RoutingPersonalAccessTokensTest < Redmine::RoutingTest
     should_route 'POST /my/personal_access_tokens' => 'personal_access_tokens#create'
     should_route 'DELETE /my/personal_access_tokens/3' => 'personal_access_tokens#destroy', :id => '3'
   end
+
+  def test_admin_personal_access_tokens
+    should_route 'GET /admin/personal_access_tokens' => 'admin_personal_access_tokens#index'
+    should_route 'DELETE /admin/personal_access_tokens/3' => 'admin_personal_access_tokens#destroy', :id => '3'
+  end
 end

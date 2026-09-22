@@ -173,6 +173,17 @@ class AdminControllerTest < Redmine::ControllerTest
     assert_response :success
   end
 
+  def test_admin_menu_should_link_to_personal_access_tokens_when_rest_api_is_enabled
+    with_settings :rest_api_enabled => '1' do
+      get :index
+      assert_select 'div#admin-menu a[href=?]', '/admin/personal_access_tokens'
+    end
+    with_settings :rest_api_enabled => '0' do
+      get :index
+      assert_select 'div#admin-menu a[href=?]', '/admin/personal_access_tokens', 0
+    end
+  end
+
   def test_admin_menu_plugin_extension
     Redmine::MenuManager.map :admin_menu do |menu|
       menu.push :test_admin_menu_plugin_extension, '/foo/bar', :caption => 'Test'
