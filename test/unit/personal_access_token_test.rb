@@ -20,6 +20,8 @@
 require_relative '../test_helper'
 
 class PersonalAccessTokenTest < ActiveSupport::TestCase
+  include Rails::Dom::Testing::Assertions
+
   def setup
     User.current = nil
     ActionMailer::Base.deliveries.clear
@@ -316,5 +318,12 @@ class PersonalAccessTokenTest < ActiveSupport::TestCase
     assert_not_nil mail
     assert_equal [@user.mail], mail.to
     assert_mail_body_match 'Personal access token Deploy was removed.', mail
+  end
+
+  def test_notification_should_link_to_token_list
+    create_token(:name => 'Deploy')
+    assert_select_email do
+      assert_select 'a[href=?]', 'http://localhost:3000/my/personal_access_tokens', :text => 'Personal access tokens'
+    end
   end
 end

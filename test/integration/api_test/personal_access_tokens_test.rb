@@ -234,4 +234,20 @@ class Redmine::ApiTest::PersonalAccessTokensTest < Redmine::ApiTest::Base
     assert_include '[FILTERED]', parameters_line
     assert_not_include @plaintext, io.string
   end
+
+  def test_tokens_should_not_be_manageable_through_the_api
+    assert_no_difference 'PersonalAccessToken.count' do
+      post '/my/personal_access_tokens.json',
+           :params => {:personal_access_token => {:name => 'x', :expiration_date => (@user.today + 5).iso8601}},
+           :headers => {'X-Redmine-API-Key' => @plaintext}
+    end
+    assert_response :not_found
+
+    assert_no_difference 'PersonalAccessToken.count' do
+      post '/my/personal_access_tokens.json',
+           :params => {:personal_access_token => {:name => 'x', :expiration_date => (@user.today + 5).iso8601}},
+           :headers => {'X-Redmine-API-Key' => @user.api_key}
+    end
+    assert_response :not_found
+  end
 end

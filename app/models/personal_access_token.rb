@@ -177,7 +177,9 @@ class PersonalAccessToken < ApplicationRecord
       User.current,
       :message => message,
       :field => :label_personal_access_token,
-      :value => name
+      :value => name,
+      :title => :label_personal_access_token_plural,
+      :url => {:controller => 'personal_access_tokens', :action => 'index'}
     )
   end
 end

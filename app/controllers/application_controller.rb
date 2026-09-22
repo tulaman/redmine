@@ -317,6 +317,13 @@ class ApplicationController < ActionController::Base
     true
   end
 
+  def require_rest_api_enabled
+    return true if Setting.rest_api_enabled?
+
+    render_403
+    false
+  end
+
   def deny_access
     User.current.logged? ? render_403 : require_login
   end

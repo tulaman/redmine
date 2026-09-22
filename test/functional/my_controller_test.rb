@@ -832,4 +832,15 @@ class MyControllerTest < Redmine::ControllerTest
     assert_match /reset/, flash[:notice]
     assert_redirected_to '/my/account'
   end
+
+  def test_account_should_link_to_personal_access_tokens_when_rest_api_is_enabled
+    with_settings :rest_api_enabled => '1' do
+      get :account
+      assert_select 'div.contextual a[href=?]', '/my/personal_access_tokens'
+    end
+    with_settings :rest_api_enabled => '0' do
+      get :account
+      assert_select 'div.contextual a[href=?]', '/my/personal_access_tokens', 0
+    end
+  end
 end

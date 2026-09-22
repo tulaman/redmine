@@ -1,0 +1,39 @@
+<div class="contextual">
+<%= link_to sprite_icon('add', l(:label_personal_access_token_new)), new_personal_access_token_path, :class => 'icon icon-add' %>
+</div>
+
+<%= title [l(:label_my_account), my_account_path], l(:label_personal_access_token_plural) %>
+
+<% if @personal_access_tokens.any? %>
+<div class="autoscroll">
+<table class="list personal-access-tokens">
+  <thead><tr>
+    <th><%= l(:field_name) %></th>
+    <th><%= l(:field_token) %></th>
+    <th><%= l(:field_created_on) %></th>
+    <th><%= l(:field_expires_on) %></th>
+    <th></th>
+  </tr></thead>
+  <tbody>
+  <% @personal_access_tokens.each do |token| %>
+    <tr id="personal-access-token-<%= token.id %>" class="<%= 'expired' if token.expired? %>">
+      <td class="name"><%= token.name %></td>
+      <td class="token"><code><%= token.masked_value %></code></td>
+      <td class="created_on"><%= format_time(token.created_on) %></td>
+      <td class="expires_on">
+        <%= format_time(token.expires_on) %>
+        <% if token.expired? %>(<%= l(:label_personal_access_token_expired) %>)<% end %>
+      </td>
+      <td class="buttons"><%= delete_link personal_access_token_path(token) %></td>
+    </tr>
+  <% end %>
+  </tbody>
+</table>
+</div>
+<% else %>
+<p class="nodata"><%= l(:label_no_data) %></p>
+<% end %>
+
+<% content_for :sidebar do %>
+<%= render :partial => 'my/sidebar' %>
+<% end %>

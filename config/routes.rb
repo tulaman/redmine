@@ -97,6 +97,7 @@ Rails.application.routes.draw do
   get 'my/api_key', :to => 'my#show_api_key', :as => 'my_api_key'
   post 'my/api_key', :to => 'my#reset_api_key'
   post 'my/atom_key', :to => 'my#reset_atom_key', :as => 'my_atom_key'
+  resources :personal_access_tokens, :path => 'my/personal_access_tokens', :only => [:index, :new, :create, :destroy], :format => false
   match 'my/password', :controller => 'my', :action => 'password', :via => [:get, :post]
   match 'my/add_block', :controller => 'my', :action => 'add_block', :via => :post
   match 'my/remove_block', :controller => 'my', :action => 'remove_block', :via => :post
