@@ -129,8 +129,8 @@ class ApplicationController < ActionController::Base
     end
     if user.nil? && Setting.rest_api_enabled? && accept_api_auth?
       if (key = api_key_from_request)
-        # Use API key
-        user = User.find_by_api_key(key)
+        # Use API key or personal access token
+        user = find_user_by_api_credential(key)
       elsif access_token = Doorkeeper.authenticate(request)
         # Oauth
         if access_token.accessible?
@@ -142,14 +142,16 @@ class ApplicationController < ActionController::Base
       elsif /\ABasic /i.match?(request.authorization.to_s)
         # HTTP Basic, either username/password or API key/random
         authenticate_with_http_basic do |username, password|
-          user = User.try_to_login(username, password)
+          # A personal access token must never be sent to an auth source or
+          # logged as a login, so it never goes through try_to_login.
+          user = User.try_to_login(username, password) unless PersonalAccessToken.token_format?(username)
           # Don't allow using username/password when two-factor auth is active
           if user&.twofa_active?
             render_error :message => 'HTTP Basic authentication is not allowed. Use API key instead', :status => 401
             return
           end
 
-          user ||= User.find_by_api_key(username)
+          user ||= find_user_by_api_credential(username)
         end
         if user && user.must_change_password?
           render_error :message => 'You must change your password', :status => 403
@@ -161,6 +163,7 @@ class ApplicationController < ActionController::Base
         su = User.find_by_login(username)
         if su && su.active?
           logger.info("  User switched by: #{user.login} (id=#{user.id})") if logger
+          su.authenticated_personal_access_token = user.authenticated_personal_access_token
           user = su
         else
           render_error :message => 'Invalid X-Redmine-Switch-User header', :status => 412
@@ -736,6 +739,20 @@ class ApplicationController < ActionController::Base
   # Returns the API 'switch user' value if present
   def api_switch_user_from_request
     request.headers["X-Redmine-Switch-User"].to_s.presence
+  end
+
+  # Returns the active user owning the given legacy API key or personal
+  # access token. Personal access tokens never fall back to API keys.
+  def find_user_by_api_credential(key)
+    if PersonalAccessToken.token_format?(key)
+      if (token = PersonalAccessToken.authenticate(key))
+        user = token.user
+        user.authenticated_personal_access_token = token
+        user
+      end
+    else
+      User.find_by_api_key(key)
+    end
   end
 
   # Renders a warning flash if obj has unsaved attachments
