@@ -131,11 +131,15 @@ class ApplicationController < ActionController::Base
       if (key = api_key_from_request)
         # Use API key or personal access token
         user = find_user_by_api_credential(key)
+        @api_credential = api_key_credential(key, user)
       elsif access_token = Doorkeeper.authenticate(request)
         # Oauth
+        @api_credential = Redmine::ApiAudit::Credential.new(:auth_kind => 'oauth', :auth_failed => true,
+                                                            :oauth_application_id => access_token.application_id)
         if access_token.accessible?
           user = User.active.find_by_id(access_token.resource_owner_id)
           user.oauth_scope = access_token.scopes.all.map(&:to_sym)
+          @api_credential = @api_credential.with(:auth_failed => false, :user_id => user.id)
         else
           doorkeeper_render_error
         end
@@ -147,16 +151,26 @@ class ApplicationController < ActionController::Base
           user = User.try_to_login(username, password) unless PersonalAccessToken.token_format?(username)
           # Don't allow using username/password when two-factor auth is active
           if user&.twofa_active?
+            @api_credential = Redmine::ApiAudit::Credential.new(:auth_kind => 'basic', :auth_failed => true)
             render_error :message => 'HTTP Basic authentication is not allowed. Use API key instead', :status => 401
             return
           end
 
-          user ||= find_user_by_api_credential(username)
+          if user
+            @api_credential = Redmine::ApiAudit::Credential.new(:auth_kind => 'basic', :user_id => user.id)
+          else
+            user = find_user_by_api_credential(username)
+            @api_credential = basic_api_credential(username, user)
+          end
         end
         if user && user.must_change_password?
           render_error :message => 'You must change your password', :status => 403
           return
         end
+      elsif Doorkeeper::OAuth::Token.from_request(request, *Doorkeeper.config.access_token_methods)
+        # Unknown OAuth access token, recorded for the API audit log. Checked
+        # last so that it never takes precedence over another credential.
+        @api_credential = Redmine::ApiAudit::Credential.new(:auth_kind => 'oauth', :auth_failed => true)
       end
       # Switch user if requested by an admin user
       if user && user.admin? && (username = api_switch_user_from_request)
@@ -164,6 +178,7 @@ class ApplicationController < ActionController::Base
         if su && su.active?
           logger.info("  User switched by: #{user.login} (id=#{user.id})") if logger
           su.authenticated_personal_access_token = user.authenticated_personal_access_token
+          @api_credential = @api_credential&.with(:user_id => su.id, :switched_from_user_id => user.id)
           user = su
         else
           render_error :message => 'Invalid X-Redmine-Switch-User header', :status => 412
@@ -761,6 +776,53 @@ class ApplicationController < ActionController::Base
       User.find_by_api_key(key)
     end
   end
+
+  # Describes a legacy API key or personal access token for the API audit log
+  def api_key_credential(key, user)
+    if PersonalAccessToken.token_format?(key)
+      Redmine::ApiAudit::Credential.new(
+        :auth_kind => 'pat', :auth_failed => user.nil?, :user_id => user&.id,
+        :personal_access_token_id => user&.authenticated_personal_access_token&.id
+      )
+    else
+      Redmine::ApiAudit::Credential.new(:auth_kind => 'api_key', :auth_failed => user.nil?, :user_id => user&.id)
+    end
+  end
+
+  # Describes HTTP Basic credentials that did not log in with a password. A
+  # failed attempt whose username is not a personal access token is recorded
+  # as 'basic' because the request does not tell a password from a key.
+  def basic_api_credential(username, user)
+    if user || PersonalAccessToken.token_format?(username)
+      api_key_credential(username, user)
+    else
+      Redmine::ApiAudit::Credential.new(:auth_kind => 'basic', :auth_failed => true)
+    end
+  end
+
+  # Adds the API audit data of API requests to the
+  # process_action.action_controller notification. Rails calls this even
+  # when a filter halted the chain or an exception is propagating.
+  def append_info_to_payload(payload)
+    super
+    return unless api_audit_request?
+
+    credential = @api_credential || Redmine::ApiAudit::Credential.new(:auth_kind => 'none')
+    payload[:redmine_api_audit] = credential.to_h.merge(
+      :http_method => request.request_method,
+      :path => request.path,
+      :ip => request.remote_ip
+    )
+  end
+  private :append_info_to_payload
+
+  # Tells if the request is an API request, even when its body cannot be parsed
+  def api_audit_request?
+    api_request?
+  rescue ActionDispatch::Http::Parameters::ParseError
+    %w(xml json).include?(request.path_parameters[:format].to_s)
+  end
+  private :api_audit_request?
 
   # Removes a PAT-shaped 'key' param from +url+ so it does not end up in the
   # login redirect, the log, or the login form. Reads +params[:key]+, the
