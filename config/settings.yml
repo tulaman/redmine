@@ -343,6 +343,10 @@ personal_access_token_max_lifetime:
 api_audit_log_enabled:
   default: 0
   security_notifications: 1
+api_audit_log_retention_days:
+  format: int
+  default: 90
+  security_notifications: 1
 default_notification_option:
   default: 'only_assigned'
 emails_header:

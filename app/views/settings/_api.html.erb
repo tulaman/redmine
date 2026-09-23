@@ -11,6 +11,7 @@
 <fieldset class="box tabular settings">
 <legend><%= l(:label_api_audit_log) %></legend>
 <p><%= setting_check_box :api_audit_log_enabled %></p>
+<p><%= setting_text_field :api_audit_log_retention_days, :size => 6 %> <%= l(:label_day_plural) %></p>
 </fieldset>
 
 <%= submit_tag l(:button_save) %>

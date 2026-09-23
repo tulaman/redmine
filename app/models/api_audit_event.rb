@@ -22,6 +22,7 @@
 class ApiAuditEvent < ApplicationRecord
   AUTH_KINDS = %w(none api_key pat oauth basic).freeze
   PATH_LENGTH_LIMIT = 255
+  PRUNE_BATCH_SIZE = 10_000
 
   belongs_to :user, :optional => true
   belongs_to :switched_from_user, :class_name => 'User', :optional => true
@@ -33,6 +34,15 @@ class ApiAuditEvent < ApplicationRecord
   validates_inclusion_of :auth_kind, :in => AUTH_KINDS
   validates_presence_of :http_method, :path, :status
   validates_length_of :http_method, :maximum => 10
+
+  # Deletes events created before the given time, in batches, and returns
+  # the number of deleted events. Uses id ranges rather than plucking ids so
+  # that each DELETE stays within the bind parameter limits of every
+  # supported database (notably SQL Server's 2,100 parameters).
+  def self.prune(before)
+    where("#{table_name}.created_on < ?", before).
+      in_batches(:of => PRUNE_BATCH_SIZE, :use_ranges => true).delete_all
+  end
 
   private
 

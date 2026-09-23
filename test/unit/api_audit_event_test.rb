@@ -77,4 +77,16 @@ class ApiAuditEventTest < ActiveSupport::TestCase
     assert_not event.valid?
     assert_include :http_method, event.errors.attribute_names
   end
+
+  def test_prune_should_delete_matching_events_across_several_batches
+    cutoff = Time.now
+    3.times { ApiAuditEvent.create!(valid_attributes.merge(:created_on => cutoff - 1.day)) }
+    kept = ApiAuditEvent.create!(valid_attributes.merge(:created_on => cutoff + 1.day))
+
+    stub_const(ApiAuditEvent, :PRUNE_BATCH_SIZE, 2) do
+      assert_equal 3, ApiAuditEvent.prune(cutoff)
+    end
+
+    assert_equal [kept.id], ApiAuditEvent.pluck(:id)
+  end
 end
