@@ -1473,3 +1473,5 @@ en:
   text_personal_access_token_max_lifetime: "Maximum lifetime: %{days} days"
   text_personal_access_token_copy_now: "Make sure to copy your personal access token now. You won't be able to see it again."
   error_personal_access_token_cannot_change_mail: "Email cannot be changed when authenticated with a personal access token."
+  label_api_audit_log: API audit log
+  setting_api_audit_log_enabled: Record REST API requests in the audit log

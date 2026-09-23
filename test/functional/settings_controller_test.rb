@@ -45,6 +45,12 @@ class SettingsControllerTest < Redmine::ControllerTest
     assert_select 'input[name=?]', 'settings[personal_access_token_max_lifetime]'
   end
 
+  def test_edit_api_should_show_api_audit_log_enabled
+    get :edit, :params => {:tab => 'api'}
+    assert_response :success
+    assert_select 'input[type=checkbox][name=?]', 'settings[api_audit_log_enabled]'
+  end
+
   def test_get_edit_should_preselect_default_issue_list_columns
     with_settings :issue_list_default_columns => %w(tracker subject status updated_on) do
       get :edit

@@ -8,5 +8,10 @@
 <p><%= setting_text_field :personal_access_token_max_lifetime, :size => 6 %> <%= l(:label_day_plural) %></p>
 </div>
 
+<fieldset class="box tabular settings">
+<legend><%= l(:label_api_audit_log) %></legend>
+<p><%= setting_check_box :api_audit_log_enabled %></p>
+</fieldset>
+
 <%= submit_tag l(:button_save) %>
 <% end %>
