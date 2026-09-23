@@ -46,6 +46,51 @@ class Redmine::ApiTest::ApiAuditLogTest < Redmine::ApiTest::Base
                  [event.auth_kind, event.auth_failed, event.user_id, event.http_method, event.path, event.status, event.ip]
   end
 
+  # Performs a request whose Client-Ip and X-Forwarded-For headers disagree,
+  # which makes request.remote_ip raise. Rails::Rack::Logger also calls
+  # remote_ip when logging at info level, so the log level is raised to
+  # warn to check the application alone.
+  def get_with_spoofed_ip(path, forwarded_for='2.2.2.2')
+    level = Rails.logger.level
+    Rails.logger.level = :warn
+    get path, :headers => {'Client-Ip' => '1.1.1.1', 'X-Forwarded-For' => forwarded_for}
+  ensure
+    Rails.logger.level = level
+  end
+
+  def test_spoofed_ip_headers_should_not_break_request_when_disabled
+    get_with_spoofed_ip '/projects.json'
+    assert_response :success
+  end
+
+  def test_spoofed_ip_headers_should_not_break_request_when_enabled
+    with_audit do
+      assert_difference 'ApiAuditEvent.count', 1 do
+        get_with_spoofed_ip '/projects.json'
+      end
+    end
+    assert_response :success
+    assert_not_nil ApiAuditEvent.last.ip
+  end
+
+  def test_spoofed_ip_headers_should_record_peer_address
+    with_audit do
+      get_with_spoofed_ip '/projects.json', '2.2.2.2, =1+1'
+    end
+    assert_response :success
+    assert_equal '127.0.0.1', ApiAuditEvent.last.ip
+  end
+
+  def test_failure_to_collect_audit_data_should_not_break_request
+    Redmine::ApiAudit::Credential.any_instance.stubs(:to_h).raises(RuntimeError, 'boom')
+    with_audit do
+      assert_no_difference 'ApiAuditEvent.count' do
+        get '/projects.json'
+      end
+    end
+    assert_response :success
+  end
+
   def test_should_record_rejected_credential
     with_audit do
       get '/users/current.json', :headers => {'X-Redmine-API-Key' => 'x' * 40}

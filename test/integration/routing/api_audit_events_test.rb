@@ -24,4 +24,12 @@ class RoutingApiAuditEventsTest < Redmine::RoutingTest
     should_route 'GET /admin/api_audit_events' => 'admin_api_audit_events#index'
     should_route 'GET /admin/api_audit_events.csv' => 'admin_api_audit_events#index', :format => 'csv'
   end
+
+  def test_admin_api_audit_events_should_not_route_other_formats
+    %w(json xml atom).each do |format|
+      assert_raise(ActionController::RoutingError) do
+        Rails.application.routes.recognize_path("/admin/api_audit_events.#{format}", :method => :get)
+      end
+    end
+  end
 end

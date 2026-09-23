@@ -805,16 +805,37 @@ class ApplicationController < ActionController::Base
   # when a filter halted the chain or an exception is propagating.
   def append_info_to_payload(payload)
     super
+    append_api_audit_info_to_payload(payload)
+  end
+  private :append_info_to_payload
+
+  # Adds the API audit data to the process_action payload. This runs in the
+  # ensure clause of process_action where an exception would replace the
+  # response, so the audit data is skipped instead of raising.
+  def append_api_audit_info_to_payload(payload)
     return unless api_audit_request?
 
     credential = @api_credential || Redmine::ApiAudit::Credential.new(:auth_kind => 'none')
     payload[:redmine_api_audit] = credential.to_h.merge(
       :http_method => request.request_method,
       :path => request.path,
-      :ip => request.remote_ip
+      :ip => api_audit_ip
     )
+  rescue => e
+    logger&.error "API audit data could not be collected: #{e.class}: #{e.message}"
   end
-  private :append_info_to_payload
+  private :append_api_audit_info_to_payload
+
+  # Returns the client IP for the audit log. remote_ip raises when the
+  # Client-Ip and X-Forwarded-For headers disagree; the event is then
+  # recorded with the address of the peer. request.ip is not used because
+  # it returns the last X-Forwarded-For entry without validating it.
+  def api_audit_ip
+    request.remote_ip
+  rescue ActionDispatch::RemoteIp::IpSpoofAttackError
+    request.remote_addr
+  end
+  private :api_audit_ip
 
   # Tells if the request is an API request, even when its body cannot be parsed
   def api_audit_request?

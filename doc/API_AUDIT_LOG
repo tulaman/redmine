@@ -277,9 +277,16 @@ Security model
    the cache or on the request path: this is not rate limiting.
 2. API responses are identical whether the log and the alerts are
    enabled or not. Authentication outcomes do not change.
-3. A failed audit write is caught in the subscriber, logged with its
-   error class and message (never the payload), and ignored; it never
-   breaks or alters the response.
+3. Neither collecting nor writing the audit data can break or alter the
+   response. The capture hook (append_info_to_payload) runs in the
+   ensure clause of process_action, so an exception there would replace
+   the response: the hook catches any StandardError, logs "API audit
+   data could not be collected: <class>: <message>", and skips the
+   event. When request.remote_ip raises IpSpoofAttackError (Client-Ip
+   and X-Forwarded-For disagree), the event is recorded with the peer
+   address (REMOTE_ADDR) instead. A failed audit write is caught in the
+   subscriber, logged with its error class and message (never the
+   payload), and ignored.
 4. The log, the administration page, the CSV export and the mails contain
    no secret: no key or token value, password, query string, header or
    body.
@@ -308,6 +315,11 @@ Limitations
   and no alert is sent while the scan does not run.
 * A cron outage longer than 24 hours (NEW_IP_LOOKBACK) can miss new-IP
   alerts for that period.
+* Each scan groups all successful credentialed events of the last 24
+  hours by (credential owner, IP) for the new-IP detector, and runs one
+  or two indexed EXISTS queries per pair not yet alerted (up to four
+  when the IP is new to its owner). The scan cost therefore grows with
+  the daily API traffic and the number of distinct (owner, IP) pairs.
 * Two scans started at the same instant could both pass the dedup check
   before either records its alert, and both send it. "flock -n" on a
   single host avoids this (see "Cron tasks").
@@ -349,6 +361,12 @@ but did not introduce. They are left unfixed:
   ProjectAdminQuery. For ApiAuditEventQuery the user filter values are
   hidden from non-admins, and no audit data is exposed: the list only
   runs on the admin-only page.
+* Rails::Rack::Logger logs request.remote_ip at the info level, before
+  Redmine runs and outside ActionDispatch::ShowExceptions. With a log
+  level of info or lower (Redmine's default is debug), a request whose
+  Client-Ip and X-Forwarded-For headers disagree raises
+  IpSpoofAttackError there and fails in the application server, whether
+  or not the audit log is enabled.
 
 Verification
 ============

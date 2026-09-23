@@ -386,7 +386,8 @@ Rails.application.routes.draw do
   match '/admin/projects_context_menu', :to => 'context_menus#projects', :as => 'projects_context_menu', :via => [:get, :post]
 
   resources :admin_personal_access_tokens, :path => 'admin/personal_access_tokens', :only => [:index, :destroy], :format => false
-  get 'admin/api_audit_events', :to => 'admin_api_audit_events#index', :as => 'admin_api_audit_events'
+  get 'admin/api_audit_events(.:format)', :to => 'admin_api_audit_events#index', :as => 'admin_api_audit_events',
+      :constraints => {:format => 'csv'}
 
   resources :auth_sources do
     member do

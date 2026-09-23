@@ -62,6 +62,19 @@ class Redmine::ApiTest::ApiAuditCredentialTest < Redmine::ApiTest::Base
     )
   end
 
+  def test_credential_should_be_none_when_rest_api_is_disabled
+    with_settings :rest_api_enabled => '0' do
+      data = audit_data_for(:get, '/projects.json', :headers => {'X-Redmine-API-Key' => User.find(2).api_key})
+      assert_equal ['none', false, nil], data.values_at(:auth_kind, :auth_failed, :user_id)
+    end
+  end
+
+  def test_credential_should_be_none_for_action_without_api_auth
+    # ActivitiesController does not accept API authentication
+    data = audit_data_for(:get, '/activity.json', :headers => {'X-Redmine-API-Key' => User.find(2).api_key})
+    assert_equal ['none', false, nil], data.values_at(:auth_kind, :auth_failed, :user_id)
+  end
+
   def test_html_request_should_not_be_audited
     assert_nil audit_data_for(:get, '/projects')
   end
