@@ -1,0 +1,426 @@
+API audit log
+==============
+
+Overview
+========
+
+The API audit log is pillar 4 of #43881. It records every REST API request
+in a database table that administrators can filter and export, and a cron
+task scans that table for anomalous activity and sends e-mail alerts.
+
+The log is opt-in: it is disabled by default (setting
+api_audit_log_enabled). While it is enabled, it covers every REST API
+request, i.e. every request whose format is .json or .xml, including
+anonymous requests and requests whose credential was rejected. HTML, Atom
+and other non-API requests are never recorded.
+
+Recording works through the process_action.action_controller
+notification: ApplicationController#find_current_user describes the
+presented credential (Redmine::ApiAudit::Credential),
+ApplicationController#append_info_to_payload adds that description to
+the notification payload, and Redmine::ApiAudit::Subscriber
+(lib/redmine/api_audit/subscriber.rb) inserts one ApiAuditEvent per
+request. Rails fills in the payload even when a filter halted the request
+or an exception is propagating, so the recorded status is the final one:
+401/403 from a filter, a status rendered by rescue_from, or, for a
+propagating exception, the status Rails maps it to
+(ActionDispatch::ExceptionWrapper), e.g. 400 for a malformed request body
+and 500 otherwise.
+
+What is recorded
+================
+
+Events
+------
+
+One row in api_audit_events (app/models/api_audit_event.rb, created by
+db/migrate/20260923100000_create_api_audit_events.rb) per API request:
+
+  created_on                time of the request
+  user_id                   the effective user; with X-Redmine-Switch-User,
+                            the switched-to user; empty when anonymous or
+                            when authentication failed
+  switched_from_user_id     the administrator who authenticated, when
+                            X-Redmine-Switch-User was used
+  auth_kind                 none, api_key, pat, oauth or basic (see below)
+  auth_failed               true when the presented credential was rejected
+  personal_access_token_id  the token that authenticated (successful pat
+                            requests only)
+  oauth_application_id      the OAuth application, whenever the access
+                            token is known
+  http_method               GET, POST, PUT, ...
+  path                      request.path, scrubbed to valid UTF-8 and
+                            truncated to 255 characters; never the query
+                            string
+  status                    the final response status (500 when Rails
+                            reports none)
+  ip                        request.remote_ip (up to 45 characters, so
+                            IPv6 addresses fit)
+
+There are no foreign keys: deleting a user, a personal access token or an
+OAuth application leaves its events in place, and the administration
+page shows it as "deleted (#id)". Rows only leave the table through
+retention pruning.
+
+Credential kinds
+----------------
+
+  none     no credential was presented, or the presented one was not
+           evaluated (REST API disabled, or the action does not accept
+           API authentication)
+  api_key  the legacy API key, in the "key" parameter, the
+           X-Redmine-API-Key header, or as the HTTP Basic username;
+           failed when no active user has that key
+  pat      a personal access token, by any of the same transports;
+           failed when the token is unknown, expired or its owner is
+           not active
+  oauth    an OAuth (Doorkeeper) access token; failed when the token is
+           unknown, revoked or expired, or when its owner is locked or
+           deleted
+  basic    HTTP Basic with a username and password; failed when the
+           login fails, or when it is refused because the user has
+           two-factor authentication active
+
+Rules:
+
+* A failed HTTP Basic attempt whose username is not shaped like a
+  personal access token is recorded as basic: the request does not tell a
+  wrong password from an unknown legacy key sent as the username. A
+  successful legacy key sent as the Basic username is recorded as api_key.
+* An unknown OAuth access token, sent in the Authorization: Bearer header
+  or as the access_token or bearer_token parameter, is recorded as a
+  failed oauth attempt. This check is made last, only when no other
+  credential was presented, so it never changes which credential
+  authenticates or the response.
+* With X-Redmine-Switch-User, user_id is the switched-to user and
+  switched_from_user_id the administrator whose credential was used. An
+  invalid switch header (412) is not an authentication failure.
+* The 403 "You must change your password" response is not an
+  authentication failure: the credential was valid.
+* An API request whose body cannot be parsed (e.g. malformed JSON) is
+  still recorded, with its format taken from the route. Parsing fails in
+  find_current_user before any credential is evaluated, so it is
+  recorded as none, with no user and status 400, whatever credential
+  was sent.
+
+Never recorded
+--------------
+
+The log never contains a key or token value, a password, the query
+string, request headers or the request body. A personal access token
+passed as "?key=" does not appear in path, which excludes the query
+string.
+
+Settings
+========
+
+Administration -> Settings -> API, in the "API audit log" box
+(config/settings.yml):
+
+  api_audit_log_enabled               default 0 (off). Records REST API
+                                      requests. The scan does nothing
+                                      while it is off.
+  api_audit_log_retention_days        default 90. Days to keep events
+                                      and alerts.
+  api_audit_alert_failures_threshold  default 10. Failed authentications
+                                      from one IP address within 10
+                                      minutes that trigger an alert.
+  api_audit_alert_volume_threshold    default 1000. Successful requests
+                                      of one user within 60 minutes that
+                                      trigger an alert.
+  api_audit_alert_new_ip              default 1 (on). Notifies users of
+                                      API access with their credentials
+                                      from a new IP address.
+
+The three numeric settings have "format: int": a non-integer value is
+silently ignored on save and the previous value is kept (the Setting
+model's numericality validation, app/models/setting.rb). A retention
+of 0 or less falls back to 90 days
+(Redmine::ApiAudit::DEFAULT_RETENTION_DAYS); it is not "keep forever".
+A threshold of 0 or less disables its detector. All five settings have
+security_notifications, so changing them notifies administrators like
+the other API settings.
+
+The windows and periods are constants of Redmine::ApiAudit::Scanner
+(lib/redmine/api_audit/scanner.rb), not settings: FAILURES_WINDOW 10
+minutes, VOLUME_WINDOW 60 minutes, NEW_IP_LOOKBACK 24 hours,
+REPEAT_INTERVAL 1 hour, DIGEST_LIMIT 20.
+
+Administration page
+===================
+
+Administration -> API audit log (/admin/api_audit_events,
+AdminApiAuditEventsController) lists the events through ApiAuditEventQuery,
+a regular Redmine query:
+
+* default filter: created in the last 7 days; default sort: newest
+  first;
+* filters: date, user, credential kind, authentication failed, personal
+  access token (id), status, HTTP method, IP address and path;
+* default columns: date, user, credential kind, authentication failed,
+  HTTP method, path, status and IP address; optional columns: switched
+  from, personal access token (name and masked value) and OAuth
+  application. A user, token or application that no longer exists is
+  shown as "deleted (#id)";
+* saved queries work as for the other administration lists (users,
+  projects): they are listed in the sidebar and open on this page;
+* CSV export of the filtered list, capped at the first 50,000 rows in
+  the current sort order, i.e. the newest 50,000 with the default sort
+  (AdminApiAuditEventsController::CSV_EXPORT_LIMIT). The export dialog
+  states the cap.
+
+The page is admin only and read only: it has no create, edit or delete
+action. It shows a warning while api_audit_log_enabled is off. The menu
+item is shown while the REST API is enabled, like the personal access
+token and OAuth application items; the page itself is reachable by
+administrators regardless of that setting.
+
+Cron tasks
+==========
+
+Two rake tasks (lib/tasks/redmine.rake) must run from cron:
+
+  redmine:api_audit:scan   runs the detectors and sends the mails
+  redmine:api_audit:prune  deletes events and alerts older than the
+                           retention period
+
+Example crontab, with the scan every 5 minutes (recommended; run it at
+least every 10 minutes, the failures window):
+
+  */5 * * * * cd /path/to/redmine && flock -n tmp/api_audit_scan.lock \
+    bundle exec rake redmine:api_audit:scan RAILS_ENV=production
+  30 3 * * *  cd /path/to/redmine && \
+    bundle exec rake redmine:api_audit:prune RAILS_ENV=production
+
+(Crontab entries must be on one line; they are wrapped here.) "flock -n"
+skips a run while the previous one is still going, so slow runs cannot
+overlap. It only guards one host: when Redmine runs on several
+application hosts, schedule the scan on one of them only.
+
+The scan sends its mails synchronously (Mailer.with_synched_deliveries,
+like redmine:send_reminders), so no mail is lost with the :async queue
+adapter. It exits with a non-zero status when a detector or a mail
+delivery failed; the errors are in the Rails log.
+
+The prune deletes in batches of 10,000 rows by id range
+(ApiAuditEvent::PRUNE_BATCH_SIZE), so that no DELETE exceeds the bind
+parameter limit of any supported database (notably SQL Server).
+
+Anomaly notifications
+=====================
+
+Redmine::ApiAudit::Scanner runs three detectors over the recorded events:
+
+  failures  at least api_audit_alert_failures_threshold events with
+            auth_failed from one IP address in the last 10 minutes.
+            Recipients: active administrators (digest). Repeated for the
+            same IP at most once per hour.
+  volume    at least api_audit_alert_volume_threshold successful events
+            of one user (user_id, the effective user) in the last 60
+            minutes. Recipients: active administrators (digest).
+            Repeated for the same user at most once per hour.
+  new_ip    a successful request with a credential (auth_kind other than
+            none) in the last 24 hours, from an IP address not seen
+            for the credential's owner in the retained log (no earlier
+            successful request of the owner from it), while the owner
+            does have earlier successful requests. The owner is
+            switched_from_user_id when present, else user_id.
+            Recipient: the owner, if active. Sent once per (owner, IP)
+            while the alert row exists, i.e. within the retention
+            period.
+
+Administrator digest (Mailer#api_audit_digest): the failures and volume
+findings of one run are sent as ONE mail per active administrator, not
+one mail per finding, so that an attacker rotating IP addresses cannot
+flood the administrators or the mail relay. The digest lists at most 20
+findings (DIGEST_LIMIT), the largest counts first, followed by "and N
+more" when there are others. It has one section for failed
+authentications per IP address and one for requests per user, each with
+a link to the audit log filtered to the last day. The findings, including
+the ones not listed, are recorded in api_audit_alerts only if at least
+one administrator's delivery succeeded, or if there is no active
+administrator; otherwise they are sent again on the next run.
+
+New-IP mail (Mailer#api_audit_new_ip): tells the owner the time, IP
+address, credential (the token name and masked value for a personal
+access token) and request. Its advice and link depend on the credential
+kind:
+
+  pat      delete the personal access token (My account -> Personal
+           access tokens)
+  api_key  reset the API access key (My account)
+  oauth    revoke the application's access (authorized applications)
+  basic    change the password
+
+The alert is recorded only when the delivery succeeded; a failed
+delivery is attempted again on the next run. Owners with no earlier
+successful request are skipped, otherwise every first use of the API
+would be reported.
+
+Both mails are rendered in the recipient's language.
+
+Idempotency: there is no watermark. Every run looks back over the
+sliding windows ending at the time of the run (the 10 minutes before it
+for failures, the 60 minutes before it for volume, the 24 hours before it
+for new IP addresses), and api_audit_alerts (created by
+db/migrate/20260923100001_create_api_audit_alerts.rb) suppresses repeats.
+Running the scan again sends no duplicate. A burst is only detected if a
+scan runs while it is still inside the window: a missed run is covered by
+the next one only when the gap is shorter than the window. One failing
+detector or delivery is logged and the other detectors still run.
+
+Security model
+==============
+
+1. Detectors only read the log after the fact. They never block, delay
+   or alter a request, and never return 429. There are no counters in
+   the cache or on the request path: this is not rate limiting.
+2. API responses are identical whether the log and the alerts are
+   enabled or not. Authentication outcomes do not change.
+3. A failed audit write is caught in the subscriber, logged with its
+   error class and message (never the payload), and ignored; it never
+   breaks or alters the response.
+4. The log, the administration page, the CSV export and the mails contain
+   no secret: no key or token value, password, query string, header or
+   body.
+5. The page and the export are for administrators only. Client-supplied
+   values (path, IP address) are HTML-escaped on the page and in the
+   mails. In the CSV, path always starts with "/" and ip is parsed by
+   Rails, so neither can start a spreadsheet formula.
+
+Backward compatibility
+======================
+
+The log is off by default. While it is off, the request path only builds
+the credential description; nothing is written. The feature adds two new
+tables (api_audit_events and api_audit_alerts, both with reversible
+migrations) and changes no existing table. Authentication outcomes for
+legacy API keys, OAuth, HTTP Basic and personal access tokens do not
+change.
+
+Limitations
+===========
+
+* One INSERT per API request while the log is enabled.
+* Requests rejected before reaching a controller (routing 404s for
+  unknown URLs) are not recorded.
+* Alerts depend on cron: they are only as timely as the scan interval,
+  and no alert is sent while the scan does not run.
+* A cron outage longer than 24 hours (NEW_IP_LOOKBACK) can miss new-IP
+  alerts for that period.
+* Two scans started at the same instant could both pass the dedup check
+  before either records its alert, and both send it. "flock -n" on a
+  single host avoids this (see "Cron tasks").
+* With production's default "raise_delivery_errors = false"
+  (config/environments/production.rb), delivery errors of any delivery
+  method are caught and only logged by Redmine's Mailer.deliver_mail
+  ("Email delivery error: ..."): the scan does not see them, so the
+  retry on the next run and the non-zero exit status do not happen.
+* Anonymous request volume is visible in the log but has no detector:
+  the volume detector counts per user.
+* The volume detector counts per effective user: requests made with
+  X-Redmine-Switch-User count for the switched-to user, not for the
+  administrator whose credential was used.
+* In the CSV export, text columns other than path and ip (user name,
+  personal access token name, OAuth application name) are exported like
+  any other Redmine CSV export, without spreadsheet formula escaping.
+* Sorting the administration list on an unindexed column (e.g. path or
+  status) without a date filter is slow on a very large table; the
+  default 7-day filter avoids it.
+* Only English strings were added (config/locales/en.yml).
+
+Known issues found in existing code (pre-existing, out of scope)
+==================================================================
+
+These issues were found while building this feature, in code it touches
+but did not introduce. They are left unfixed:
+
+* An OAuth access token that is accessible but whose owner is locked or
+  deleted makes ApplicationController#find_current_user raise a
+  NoMethodError (User.active.find_by_id returns nil, then oauth_scope= is
+  called on it), i.e. a 500 response. This is unchanged; the audit log
+  records the request as a failed oauth attempt with status 500.
+* QueriesController#new and #create do not restrict the admin-only query
+  types (UserQuery, ProjectAdminQuery, ApiAuditEventQuery): a non-admin
+  with the "Save queries" permission (checked by authorize_global) can
+  save a private query row of these types. Such a row appears in every
+  administrator's sidebar, because ApiAuditEventQuery.visible returns
+  every query for administrators, the same pattern as for UserQuery and
+  ProjectAdminQuery. For ApiAuditEventQuery the user filter values are
+  hidden from non-admins, and no audit data is exposed: the list only
+  runs on the admin-only page.
+
+Verification
+============
+
+Automated tests
+---------------
+
+The feature's dedicated test files are:
+
+  test/unit/api_audit_event_test.rb
+  test/unit/api_audit_event_query_test.rb
+  test/unit/lib/redmine/api_audit_test.rb
+  test/unit/lib/redmine/api_audit/scanner_test.rb
+  test/functional/admin_api_audit_events_controller_test.rb
+  test/integration/api_test/api_audit_credential_test.rb
+  test/integration/api_test/api_audit_log_test.rb
+  test/integration/routing/api_audit_events_test.rb
+
+Run them with:
+
+  bundle exec rails test test/unit/api_audit_event_test.rb \
+    test/unit/api_audit_event_query_test.rb \
+    test/unit/lib/redmine/api_audit_test.rb \
+    test/unit/lib/redmine/api_audit/scanner_test.rb \
+    test/functional/admin_api_audit_events_controller_test.rb \
+    test/integration/api_test/api_audit_credential_test.rb \
+    test/integration/api_test/api_audit_log_test.rb \
+    test/integration/routing/api_audit_events_test.rb
+
+Tests were also added to existing shared files:
+test/unit/mailer_test.rb (the test_api_audit_* tests),
+test/functional/settings_controller_test.rb
+(test_edit_api_should_show_api_audit_*),
+test/functional/admin_controller_test.rb
+(test_admin_menu_should_link_to_api_audit_log_when_rest_api_is_enabled)
+and test/functional/queries_controller_test.rb
+(test_create_api_audit_event_query_should_redirect_to_api_audit_log,
+test_new_api_audit_event_query_should_not_expose_users_to_non_admin).
+
+Manual smoke test
+-----------------
+
+1. Administration -> Settings -> API: check "Enable REST API" and
+   "Record REST API requests in the audit log", and save.
+2. From a terminal, send one request of each kind (use a real personal
+   access token and a real legacy API key):
+     curl -i -H "X-Redmine-API-Key: redmine_pat_<40 chars>" \
+       http://localhost:3000/users/current.json
+     curl -i -H "X-Redmine-API-Key: <legacy API key>" \
+       http://localhost:3000/users/current.json
+     curl -i -H "X-Redmine-API-Key: wrong" \
+       http://localhost:3000/users/current.json
+     curl -i http://localhost:3000/issues.json
+   Expect 200, 200, 401 and 200.
+3. Open Administration -> API audit log: expect four rows, with the
+   credential kinds pat, api_key (failed for the third one) and none.
+   Filter by credential kind and by "authentication failed", and export
+   the list as CSV. The token value appears nowhere.
+4. Configure e-mail delivery in config/configuration.yml first; for
+   local testing, delivery_method :file or :test is enough. Otherwise
+   the delivery fails, nothing is recorded, the scan exits non-zero and
+   a second run tries again.
+   Set the failures threshold to 2 and save, send the "wrong" request
+   twice more, then run:
+     bundle exec rake redmine:api_audit:scan
+   and check log/development.log for the "Unusual REST API activity"
+   mail to each active administrator. Run the scan again: no new mail.
+   New-IP mails need a request from a second IP address by a user with
+   earlier requests (e.g. through a proxy that sets X-Forwarded-For
+   from a trusted address, or from another host).
+5. In `bundle exec rails console`, age the rows with
+     ApiAuditEvent.update_all(:created_on => 100.days.ago)
+   then run:
+     bundle exec rake redmine:api_audit:prune
+   and check that ApiAuditEvent.count is 0.

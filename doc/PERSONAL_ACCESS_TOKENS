@@ -138,6 +138,9 @@ default 90). It bounds how far in the future any user's token expiration
 date can be set; see "Limitations and notes" for what happens with 0 or a
 negative value, and for existing tokens when this is lowered.
 
+The same tab holds the settings of the API audit log, which records every
+REST API request and the credential used; see doc/API_AUDIT_LOG.
+
 Security model
 ===============
 
