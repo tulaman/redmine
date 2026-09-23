@@ -1,0 +1,366 @@
+Personal access tokens
+=======================
+
+Overview
+========
+
+A personal access token (PAT) is a second way for a user to authenticate
+against the REST API, alongside the existing per-user API key ("API access
+key" on the My account page).
+
+The legacy API key has three properties that make it awkward from a security
+point of view: there is exactly one per user, it never expires, and once it
+leaks it stays valid until the user notices and resets it. Personal access
+tokens address this:
+
+* a user can create any number of tokens, each with its own name, so a
+  token can be scoped to a purpose (e.g. "CI pipeline", "laptop backup
+  script") and identified later;
+* every token has an expiration date, capped by an administrator-configured
+  maximum lifetime;
+* a token can be revoked on its own, without touching the account's other
+  tokens or its legacy API key.
+
+A token authenticates exactly like the legacy API key: it identifies the
+same Redmine user, with the same permissions, on the same REST API. It does
+not introduce a separate, more restricted, kind of access.
+
+Token format and storage
+=========================
+
+A token's plaintext value has the form:
+
+    redmine_pat_<40 alphanumeric characters>
+
+i.e. the prefix "redmine_pat_" (defined as PersonalAccessToken::PREFIX)
+followed by 40 characters generated with SecureRandom.alphanumeric, for
+about 238 bits of entropy (40 characters from a 62-character alphabet).
+This shape is also how Redmine tells a personal access token apart from a
+legacy API key or a real username at authentication time
+(PersonalAccessToken.token_format?).
+
+Redmine never stores the plaintext value. On creation
+(app/models/personal_access_token.rb) it stores:
+
+* token_digest: the SHA256 hex digest of the plaintext, under a unique
+  database index (see the migration below), used to look the token up;
+* token_last_chars: the last 4 characters of the plaintext, kept only so
+  the token list can show something recognizable
+  (PersonalAccessToken#masked_value renders it as "redmine_pat_" followed
+  by an ellipsis and those last 4 characters).
+
+The plaintext is held in memory only, in the token's plaintext_token
+attribute, and is shown exactly once: on the page displayed right after
+creation (app/views/personal_access_tokens/created.html.erb). That
+response is marked no-store so it is not cached. If a token's value is
+lost, there is no way to recover it; the only option is to delete the
+token and create a new one.
+
+The database table is created by
+db/migrate/20260922120000_create_personal_access_tokens.rb, with
+user_id, name, token_digest (unique index), token_last_chars, expires_on,
+created_on and updated_on columns.
+
+Using a token
+=============
+
+A personal access token can be used with any of the three transports the
+legacy API key already supports. In the examples below, replace
+"redmine_pat_<40 chars>" with an actual token value.
+
+1. The X-Redmine-API-Key HTTP header (recommended, see "Security notes"
+   below):
+
+     curl -H "X-Redmine-API-Key: redmine_pat_<40 chars>" \
+       https://example.com/issues.json
+
+2. The "key" request parameter:
+
+     curl "https://example.com/issues.json?key=redmine_pat_<40 chars>"
+
+3. HTTP Basic authentication, with the token as the username and any
+   value (even an empty one) as the password:
+
+     curl -u redmine_pat_<40 chars>:x https://example.com/issues.json
+
+The header transport is recommended because, unlike the "key" parameter,
+it never appears in the request URL; see "Limitations and notes" below for
+what that exposure means in practice.
+
+A personal access token reaches everything the legacy API key reaches:
+every REST API endpoint, and every other API-enabled action that accepts
+key-based authentication, including Atom feeds, CSV exports and PDF
+exports.
+
+Managing tokens
+================
+
+My account (any user)
+----------------------
+
+Signed-in users manage their own tokens from My account, under "Personal
+access tokens" (this link, and the whole feature, is only shown while
+"Enable REST API" is on):
+
+* the list at /my/personal_access_tokens shows each token's name, masked
+  value, creation date and expiration date, and marks expired tokens;
+* "New personal access token" (/my/personal_access_tokens/new) asks for a
+  name and an expiration date. The date picker is bounded: it cannot be
+  today or earlier, and it cannot be later than the configured maximum
+  lifetime from today. The field is pre-filled with 30 days from today, or
+  the maximum lifetime if that is shorter;
+* creating or deleting a token requires sudo mode, i.e. re-entering the
+  account's password, wherever sudo mode is enabled (see "Limitations and
+  notes" below — it is off by default);
+* the plaintext value is shown exactly once, right after creation, with a
+  "copy" button.
+
+Administration (administrators)
+--------------------------------
+
+Administration -> Personal access tokens (also only shown while the REST
+API is enabled) lists every token of every user:
+
+* it can be filtered by status ("active" or "expired") and by user (a
+  substring match against login, name or email, the same matching used by
+  the user autocomplete elsewhere in Redmine);
+* an administrator can delete any user's token; deleting one requires
+  sudo mode (again, only where sudo mode is enabled);
+* the token's owner receives an email notification when their token is
+  deleted this way, just as they do when they delete it themselves.
+
+Administration -> Settings -> API
+-----------------------------------
+
+The API settings tab has a new "Maximum lifetime of personal access
+tokens" field (setting name personal_access_token_max_lifetime, in days,
+default 90). It bounds how far in the future any user's token expiration
+date can be set; see "Limitations and notes" for what happens with 0 or a
+negative value, and for existing tokens when this is lowered.
+
+Security model
+===============
+
+The design relies on the following, reader-facing, guarantees:
+
+1. Only a token's SHA256 digest is stored. Nobody, including a Redmine
+   administrator with database access, can recover a token's plaintext
+   from the database; a lost token can only be replaced.
+2. A token is only usable while its owning user account is active. A
+   locked or otherwise inactive owner makes every one of that user's
+   tokens stop authenticating immediately, with no separate action
+   needed (PersonalAccessToken.authenticate checks token.user&.active?).
+3. Unknown tokens, expired tokens and tokens whose owner is locked all
+   produce the same 401 response, so a caller cannot use the response to
+   tell these cases apart.
+4. Personal access tokens cannot be used to manage personal access
+   tokens: the token management pages (both under My account and under
+   Administration) only accept the browser (HTML) format, not the REST
+   API's .json/.xml formats, and creating or deleting a token additionally
+   requires sudo mode, which is tied to an authenticated web session with
+   a recently re-entered password, not to a bearer credential.
+5. A request authenticated with a personal access token never discloses
+   the account's legacy API key, on the "My account" API response or on
+   a user's "show" API response (User#authorized_by_personal_access_token?
+   suppresses api_key on both).
+6. A request authenticated with a personal access token cannot change
+   the account's own email address through My account (PUT/POST
+   /my/account); the request is rejected with a validation error instead.
+   This closes off using a leaked token to redirect password-reset email
+   to an attacker-controlled address.
+7. Redmine emails the token's owner whenever one of their tokens is
+   created or deleted, whether they or an administrator did it. The
+   notification names the token, and states who performed the action and
+   from which IP address.
+8. A token-shaped value is stripped out of Redmine's own request logging
+   wherever Redmine's code controls it: request parameters named "key" are
+   filtered out of the Rails log (config/application.rb), and a
+   personal-access-token-shaped "key" parameter is removed from the URL
+   Redmine redirects an anonymous request to when asking it to log in, so
+   it does not end up in that redirect, its log line, or the login form.
+
+Backward compatibility
+=======================
+
+This feature is purely additive. Legacy API keys, OAuth (Doorkeeper)
+tokens, and HTTP Basic authentication with a real username and password
+all keep working exactly as before; none of their code paths were
+changed. Existing scripts and integrations that use the legacy API key
+require no changes, and a personal access token can be used as a
+drop-in replacement for the API key in any of them: the same header, the
+same "key" parameter, and the same use as an HTTP Basic username all
+work.
+
+Limitations and notes
+======================
+
+* A token passed with "?key=" appears in the request URL. That means it
+  can end up in the web server's access log, in browser history, and, if
+  the requested page is HTML and contains outgoing links or images, in
+  the Referer header sent to those other destinations; the page's own
+  links carry the token in the URL too. The X-Redmine-API-Key header
+  avoids all of this. This is exactly how the legacy API key already
+  behaves when passed the same way; personal access tokens do not make it
+  worse or better.
+* Sudo mode is disabled by default in Redmine (see the commented-out
+  "sudo_mode" setting in config/configuration.yml.example). The sudo-mode
+  protection on creating and deleting tokens (both under My account and
+  under Administration) only has an effect where an administrator has
+  turned sudo mode on.
+* A token issued to an administrator carries full administrator power,
+  including the ability to create other administrator accounts, so an
+  administrator's own tokens should be given a short lifetime. In
+  particular, changing another user's email address through
+  PUT /users/:id is not guarded against personal-access-token
+  authentication the way My account's own email change is; an
+  administrator's token can still be used to change any user's email.
+* A personal access token does not itself satisfy two-factor
+  authentication. It is only ever issued from a web session that has
+  already passed 2FA (where enabled) and sudo mode (where enabled); the
+  token does not re-prove either of those on each API request.
+* Setting the maximum lifetime (personal_access_token_max_lifetime) to 0
+  or to a negative number silently falls back to the built-in default of
+  90 days (PersonalAccessToken.max_lifetime); it is not treated as "no
+  limit".
+* While the REST API is disabled (Administration -> Settings -> API ->
+  "Enable REST API"), personal access tokens do not authenticate
+  anything, and the token management pages, both under My account and
+  under Administration, respond with 403.
+* Lowering the maximum lifetime only limits new tokens' expiration
+  dates; it does not shorten or invalidate tokens that already exist with
+  a later expiration date.
+* An expired token is not deleted automatically; it stays in its owner's
+  list (marked as expired) and in the administration list until someone
+  deletes it.
+* A token's name must be unique within its owner's tokens, but this is
+  enforced only by model validation (validates_uniqueness_of), not by a
+  database index, so it relies on the application, not the database, to
+  prevent a race from creating two same-named tokens for one user.
+* Only English translations were added, in config/locales/en.yml; other
+  languages are expected to be translated afterwards, following Redmine's
+  usual translation workflow.
+
+Known issues found in existing code (pre-existing, out of scope)
+==================================================================
+
+While building this feature, a few issues were found in code this feature
+touches but did not introduce. They are called out here so they are not
+mistaken for part of this feature, and are left unfixed as out of scope
+for this change:
+
+* app/views/mailer/security_notification.html.erb crashes if a caller
+  passes a :url without also passing a :title: its "elsif @url" branch
+  calls "link_to @url" with a single argument, which is not a valid way
+  to call link_to for a plain URL. This feature works around it by always
+  passing both :url and :title when it calls
+  Mailer.deliver_security_notification.
+* app/views/my/account.api.rsb discloses the account's api_key to
+  OAuth-authenticated requests, not only to session-authenticated ones;
+  only the personal-access-token case was fixed here
+  (see "Security model" above). By contrast, app/views/users/show.api.rsb
+  already excluded OAuth-authenticated requests from seeing their own
+  api_key before this change; this feature only added the equivalent
+  personal-access-token exclusion there.
+* An OAuth access token whose owner has been locked raises a
+  NoMethodError in app/controllers/application_controller.rb: the code
+  path calls User.active.find_by_id, which returns nil for a locked
+  user, and then calls oauth_scope= on that nil.
+* When the legacy API key is sent as the HTTP Basic username, it is
+  still passed through User.try_to_login before falling back to
+  User.find_by_api_key. That means it can reach a configured
+  authentication source and can be written to the debug SQL log, the way
+  any login attempt can. Personal access tokens skip try_to_login
+  entirely (they are recognized by their shape and never treated as a
+  login name), so they cannot reach an auth source or that log.
+
+Verification
+=============
+
+Automated tests
+----------------
+
+The feature's dedicated test files are:
+
+  test/unit/personal_access_token_test.rb
+  test/functional/personal_access_tokens_controller_test.rb
+  test/functional/admin_personal_access_tokens_controller_test.rb
+  test/integration/api_test/personal_access_tokens_test.rb
+  test/integration/routing/personal_access_tokens_test.rb
+
+Run them with:
+
+  bundle exec rails test test/unit/personal_access_token_test.rb \
+    test/functional/personal_access_tokens_controller_test.rb \
+    test/functional/admin_personal_access_tokens_controller_test.rb \
+    test/integration/api_test/personal_access_tokens_test.rb \
+    test/integration/routing/personal_access_tokens_test.rb
+
+A few more assertions for this feature were added to existing shared test
+files, and can be run the same way:
+test/functional/settings_controller_test.rb
+(test_edit_api_should_show_personal_access_token_max_lifetime),
+test/functional/admin_controller_test.rb
+(test_admin_menu_should_link_to_personal_access_tokens_when_rest_api_is_enabled),
+and test/functional/my_controller_test.rb (the tests whose names mention
+"personal_access_tokens" or "mail_change").
+
+Manual smoke test
+------------------
+
+Happy path:
+
+1. Administration -> Settings -> API: check "Enable REST API" and save.
+2. Log in as a regular user, go to My account, and open "Personal access
+   tokens".
+3. Click "New personal access token", enter a name and an expiration
+   date within the allowed range, and submit. If sudo mode is enabled
+   (see "Limitations and notes"), confirm your password first.
+4. Copy the plaintext value shown on the confirmation page (it has the
+   form redmine_pat_<40 chars> and is shown only this once).
+5. From a terminal, confirm it authenticates over the header:
+   curl -i -H "X-Redmine-API-Key: redmine_pat_<40 chars>" \
+     http://localhost:3000/users/current.json
+   Expect a 200 response for the same user, with no api_key field.
+6. Confirm the other two transports work the same way:
+   curl -i -u redmine_pat_<40 chars>:x http://localhost:3000/users/current.json
+   curl -i "http://localhost:3000/users/current.json?key=redmine_pat_<40 chars>"
+7. Delete the token from My account -> Personal access tokens (or, as an
+   administrator, from Administration -> Personal access tokens) and
+   confirm the owner receives an email for both the creation and the
+   deletion (the automated tests above already assert exactly one mail is
+   sent for each; for a live check, configure SMTP delivery as described
+   in doc/INSTALL and watch the recipient's mailbox).
+
+Negative path, from the same setup:
+
+1. Expired token: in `bin/rails console`, since expires_on is a
+   read-only attribute after creation (attr_readonly), force it directly
+   with update_all rather than update/save:
+     token = PersonalAccessToken.find_by(:token_last_chars => '<last 4
+       chars from step 4 above>')
+     PersonalAccessToken.where(:id => token.id).update_all(:expires_on =>
+       1.day.ago)
+   Retry the curl call from step 5; expect 401.
+2. Deleted token: delete the same token from the UI, then retry the same
+   curl call with the same plaintext value; expect 401.
+3. Locked owner: create a fresh token, note its plaintext, then in the
+   console lock its owner: User.find_by_login('<login>').lock! ; retry
+   the curl call; expect 401. Unlock it again with
+   User.find_by_login('<login>').activate! to restore normal access.
+4. REST API disabled: Administration -> Settings -> API, uncheck "Enable
+   REST API" and save. Retry the curl call; expect 403 (the API rejects
+   every credential while it is disabled). Also visit
+   /my/personal_access_tokens and /admin/personal_access_tokens in the
+   browser; expect 403 on both. Re-enable the setting afterwards.
+5. Another user's token id: as a non-admin user, note the numeric id of
+   a token belonging to a different user (e.g. from its delete link's
+   URL), then issue DELETE /my/personal_access_tokens/<that id> while
+   authenticated as the first user; expect 404, not 403 (the lookup is
+   scoped to the current user's own tokens, so a foreign id looks
+   nonexistent rather than forbidden).
+6. "?key=" filtering in the log: with the REST API enabled again, run
+     curl "http://localhost:3000/issues.json?key=redmine_pat_<40 chars>"
+   then check log/development.log for that request's "Started GET" and
+   "Parameters:" lines. Both should show "[FILTERED]" in place of the
+   token value, and the plaintext value should not appear anywhere else
+   in the log file.
