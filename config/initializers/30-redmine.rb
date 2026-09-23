@@ -116,4 +116,9 @@ Rails.application.config.to_prepare do
   end
 end
 
+# Records REST API requests in the API audit log when it is enabled
+ActiveSupport::Notifications.subscribe('process_action.action_controller') do |event|
+  Redmine::ApiAudit::Subscriber.call(event)
+end
+
 Rails.application.deprecators[:redmine] = ActiveSupport::Deprecation.new('7.0', 'Redmine')

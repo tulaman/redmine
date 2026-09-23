@@ -285,6 +285,16 @@ module Redmine
                   :caption => :'doorkeeper.layouts.admin.nav.applications',
                   :icon => 'apps',
                   :html => {:class => 'icon icon-applications'}
+        menu.push :personal_access_tokens, {:controller => 'admin_personal_access_tokens', :action => 'index'},
+                  :if => Proc.new { Setting.rest_api_enabled? },
+                  :caption => :label_personal_access_token_plural,
+                  :icon => 'server-authentication',
+                  :html => {:class => 'icon icon-server-authentication'}
+        menu.push :api_audit_events, {:controller => 'admin_api_audit_events', :action => 'index'},
+                  :if => Proc.new { Setting.rest_api_enabled? },
+                  :caption => :label_api_audit_log,
+                  :icon => 'history',
+                  :html => {:class => 'icon icon-history'}
         menu.push :plugins, {:controller => 'admin', :action => 'plugins'},
                   :last => true,
                   :icon => 'plugins',

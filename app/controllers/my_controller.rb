@@ -53,6 +53,23 @@ class MyController < ApplicationController
     if request.put?
       @user.safe_attributes = params[:user]
       @user.pref.safe_attributes = params[:pref]
+
+      # A leaked PAT must not be usable to redirect the "forgot password"
+      # email and escalate to a full session, so it may not change the mail.
+      # Checked after assignment, via #mail_changed?, so it reflects
+      # EmailAddress' own normalization and dirty tracking.
+      if @user.authorized_by_personal_access_token? && @user.mail_changed?
+        @user.errors.add(:base, l(:error_personal_access_token_cannot_change_mail))
+        respond_to do |format|
+          # Defence in depth: a PAT client has no session and no CSRF token, so in
+          # production an HTML PUT is already rejected by forgery protection before
+          # this point. This branch exists so the guard does not depend on that.
+          format.html {render :action => :account, :status => :unprocessable_content}
+          format.api  {render_validation_errors(@user)}
+        end
+        return
+      end
+
       if @user.save
         @user.pref.save
         respond_to do |format|

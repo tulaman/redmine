@@ -39,6 +39,24 @@ class SettingsControllerTest < Redmine::ControllerTest
     assert_select 'input[name=?][value=""]', 'settings[enabled_scm][]'
   end
 
+  def test_edit_api_should_show_personal_access_token_max_lifetime
+    get :edit, :params => {:tab => 'api'}
+    assert_response :success
+    assert_select 'input[name=?]', 'settings[personal_access_token_max_lifetime]'
+  end
+
+  def test_edit_api_should_show_api_audit_log_enabled
+    get :edit, :params => {:tab => 'api'}
+    assert_response :success
+    assert_select 'input[type=checkbox][name=?]', 'settings[api_audit_log_enabled]'
+  end
+
+  def test_edit_api_should_show_api_audit_log_retention_days
+    get :edit, :params => {:tab => 'api'}
+    assert_response :success
+    assert_select 'input[name=?]', 'settings[api_audit_log_retention_days]'
+  end
+
   def test_get_edit_should_preselect_default_issue_list_columns
     with_settings :issue_list_default_columns => %w(tracker subject status updated_on) do
       get :edit
@@ -299,5 +317,14 @@ class SettingsControllerTest < Redmine::ControllerTest
     assert_redirected_to '/settings'
     assert_equal '1', Setting.mail_handler_enable_regex_delimiters
     assert_equal 'On .*, .* at .*, .* <.*<mailto:.*>> wrote:', Setting.mail_handler_body_delimiters
+  end
+
+  def test_edit_api_should_show_api_audit_alert_settings
+    get :edit, :params => {:tab => 'api'}
+    assert_response :success
+    assert_select 'input[name=?]', 'settings[api_audit_alert_failures_threshold]'
+    assert_select 'input[name=?]', 'settings[api_audit_alert_volume_threshold]'
+    assert_select 'input[type=checkbox][name=?]', 'settings[api_audit_alert_new_ip]'
+    assert_select 'fieldset > p > em.info', :text => /redmine:api_audit:scan.*every 5 minutes/
   end
 end

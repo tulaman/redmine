@@ -129,38 +129,56 @@ class ApplicationController < ActionController::Base
     end
     if user.nil? && Setting.rest_api_enabled? && accept_api_auth?
       if (key = api_key_from_request)
-        # Use API key
-        user = User.find_by_api_key(key)
+        # Use API key or personal access token
+        user = find_user_by_api_credential(key)
+        @api_credential = api_key_credential(key, user)
       elsif access_token = Doorkeeper.authenticate(request)
         # Oauth
+        @api_credential = Redmine::ApiAudit::Credential.new(:auth_kind => 'oauth', :auth_failed => true,
+                                                            :oauth_application_id => access_token.application_id)
         if access_token.accessible?
           user = User.active.find_by_id(access_token.resource_owner_id)
           user.oauth_scope = access_token.scopes.all.map(&:to_sym)
+          @api_credential = @api_credential.with(:auth_failed => false, :user_id => user.id)
         else
           doorkeeper_render_error
         end
       elsif /\ABasic /i.match?(request.authorization.to_s)
         # HTTP Basic, either username/password or API key/random
         authenticate_with_http_basic do |username, password|
-          user = User.try_to_login(username, password)
+          # A personal access token must never be sent to an auth source or
+          # logged as a login, so it never goes through try_to_login.
+          user = User.try_to_login(username, password) unless PersonalAccessToken.token_format?(username)
           # Don't allow using username/password when two-factor auth is active
           if user&.twofa_active?
+            @api_credential = Redmine::ApiAudit::Credential.new(:auth_kind => 'basic', :auth_failed => true)
             render_error :message => 'HTTP Basic authentication is not allowed. Use API key instead', :status => 401
             return
           end
 
-          user ||= User.find_by_api_key(username)
+          if user
+            @api_credential = Redmine::ApiAudit::Credential.new(:auth_kind => 'basic', :user_id => user.id)
+          else
+            user = find_user_by_api_credential(username)
+            @api_credential = basic_api_credential(username, user)
+          end
         end
         if user && user.must_change_password?
           render_error :message => 'You must change your password', :status => 403
           return
         end
+      elsif Doorkeeper::OAuth::Token.from_request(request, *Doorkeeper.config.access_token_methods)
+        # Unknown OAuth access token, recorded for the API audit log. Checked
+        # last so that it never takes precedence over another credential.
+        @api_credential = Redmine::ApiAudit::Credential.new(:auth_kind => 'oauth', :auth_failed => true)
       end
       # Switch user if requested by an admin user
       if user && user.admin? && (username = api_switch_user_from_request)
         su = User.find_by_login(username)
         if su && su.active?
           logger.info("  User switched by: #{user.login} (id=#{user.id})") if logger
+          su.authenticated_personal_access_token = user.authenticated_personal_access_token
+          @api_credential = @api_credential&.with(:user_id => su.id, :switched_from_user_id => user.id)
           user = su
         else
           render_error :message => 'Invalid X-Redmine-Switch-User header', :status => 412
@@ -274,7 +292,7 @@ class ApplicationController < ActionController::Base
     unless User.current.logged?
       # Extract only the basic url parameters on non-GET requests
       if request.get?
-        url = request.original_url
+        url = strip_personal_access_token_from_url(request.original_url)
       else
         url = url_for(:controller => params[:controller], :action => params[:action], :id => params[:id], :project_id => params[:project_id])
       end
@@ -312,6 +330,13 @@ class ApplicationController < ActionController::Base
       return false
     end
     true
+  end
+
+  def require_rest_api_enabled
+    return true if Setting.rest_api_enabled?
+
+    render_403
+    false
   end
 
   def deny_access
@@ -736,6 +761,100 @@ class ApplicationController < ActionController::Base
   # Returns the API 'switch user' value if present
   def api_switch_user_from_request
     request.headers["X-Redmine-Switch-User"].to_s.presence
+  end
+
+  # Returns the active user owning the given legacy API key or personal
+  # access token. Personal access tokens never fall back to API keys.
+  def find_user_by_api_credential(key)
+    if PersonalAccessToken.token_format?(key)
+      if (token = PersonalAccessToken.authenticate(key))
+        user = token.user
+        user.authenticated_personal_access_token = token
+        user
+      end
+    else
+      User.find_by_api_key(key)
+    end
+  end
+
+  # Describes a legacy API key or personal access token for the API audit log
+  def api_key_credential(key, user)
+    if PersonalAccessToken.token_format?(key)
+      Redmine::ApiAudit::Credential.new(
+        :auth_kind => 'pat', :auth_failed => user.nil?, :user_id => user&.id,
+        :personal_access_token_id => user&.authenticated_personal_access_token&.id
+      )
+    else
+      Redmine::ApiAudit::Credential.new(:auth_kind => 'api_key', :auth_failed => user.nil?, :user_id => user&.id)
+    end
+  end
+
+  # Describes HTTP Basic credentials that did not log in with a password. A
+  # failed attempt whose username is not a personal access token is recorded
+  # as 'basic' because the request does not tell a password from a key.
+  def basic_api_credential(username, user)
+    if user || PersonalAccessToken.token_format?(username)
+      api_key_credential(username, user)
+    else
+      Redmine::ApiAudit::Credential.new(:auth_kind => 'basic', :auth_failed => true)
+    end
+  end
+
+  # Adds the API audit data of API requests to the
+  # process_action.action_controller notification. Rails calls this even
+  # when a filter halted the chain or an exception is propagating.
+  def append_info_to_payload(payload)
+    super
+    append_api_audit_info_to_payload(payload)
+  end
+  private :append_info_to_payload
+
+  # Adds the API audit data to the process_action payload. This runs in the
+  # ensure clause of process_action where an exception would replace the
+  # response, so the audit data is skipped instead of raising.
+  def append_api_audit_info_to_payload(payload)
+    return unless api_audit_request?
+
+    credential = @api_credential || Redmine::ApiAudit::Credential.new(:auth_kind => 'none')
+    payload[:redmine_api_audit] = credential.to_h.merge(
+      :http_method => request.request_method,
+      :path => request.path,
+      :ip => api_audit_ip
+    )
+  rescue => e
+    logger&.error "API audit data could not be collected: #{e.class}: #{e.message}"
+  end
+  private :append_api_audit_info_to_payload
+
+  # Returns the client IP for the audit log. remote_ip raises when the
+  # Client-Ip and X-Forwarded-For headers disagree; the event is then
+  # recorded with the address of the peer. request.ip is not used because
+  # it returns the last X-Forwarded-For entry without validating it.
+  def api_audit_ip
+    request.remote_ip
+  rescue ActionDispatch::RemoteIp::IpSpoofAttackError
+    request.remote_addr
+  end
+  private :api_audit_ip
+
+  # Tells if the request is an API request, even when its body cannot be parsed
+  def api_audit_request?
+    api_request?
+  rescue ActionDispatch::Http::Parameters::ParseError
+    %w(xml json).include?(request.path_parameters[:format].to_s)
+  end
+  private :api_audit_request?
+
+  # Removes a PAT-shaped 'key' param from +url+ so it does not end up in the
+  # login redirect, the log, or the login form. Reads +params[:key]+, the
+  # same value the auth layer itself reads, so this never disagrees with
+  # what actually authenticated. A legacy API key is left untouched.
+  def strip_personal_access_token_from_url(url)
+    return url unless PersonalAccessToken.token_format?(params[:key])
+
+    query = request.query_parameters.except('key')
+    base = url.split('?', 2).first
+    query.empty? ? base : "#{base}?#{query.to_query}"
   end
 
   # Renders a warning flash if obj has unsaved attachments

@@ -1,0 +1,31 @@
+<div class="contextual">
+<%= link_to sprite_icon('add', l(:label_personal_access_token_new)), new_personal_access_token_path, :class => 'icon icon-add' %>
+</div>
+
+<%= title [l(:label_my_account), my_account_path], l(:label_personal_access_token_plural) %>
+
+<% if @personal_access_tokens.any? %>
+<div class="autoscroll">
+<table class="list personal-access-tokens">
+  <thead><tr>
+    <th><%= l(:field_name) %></th>
+    <th><%= l(:field_token) %></th>
+    <th><%= l(:field_created_on) %></th>
+    <th><%= l(:field_expires_on) %></th>
+    <th></th>
+  </tr></thead>
+  <tbody>
+  <% @personal_access_tokens.each do |token| %>
+    <%= render :partial => 'personal_access_token',
+               :locals => {:personal_access_token => token, :show_user => false, :delete_path => personal_access_token_path(token)} %>
+  <% end %>
+  </tbody>
+</table>
+</div>
+<% else %>
+<p class="nodata"><%= l(:label_no_data) %></p>
+<% end %>
+
+<% content_for :sidebar do %>
+<%= render :partial => 'my/sidebar' %>
+<% end %>

@@ -1,0 +1,20 @@
+<div class="autoscroll">
+<table class="list odd-even api-audit-events">
+<thead>
+  <tr>
+    <% @query.inline_columns.each do |column| %>
+      <%= column_header(@query, column) %>
+    <% end %>
+  </tr>
+</thead>
+<tbody>
+<% events.each do |event| -%>
+  <tr id="api-audit-event-<%= event.id %>" class="<%= cycle('odd', 'even') %><%= ' failed' if event.auth_failed? %>">
+    <% @query.inline_columns.each do |column| %>
+      <%= content_tag('td', column_content(column, event), :class => column.css_classes) %>
+    <% end %>
+  </tr>
+<% end -%>
+</tbody>
+</table>
+</div>

@@ -40,6 +40,21 @@ namespace :redmine do
     end
   end
 
+  namespace :api_audit do
+    desc 'Removes API audit log records older than the retention period.'
+    task :prune => :environment do
+      Redmine::ApiAudit.prune
+    end
+
+    desc 'Detects anomalous API activity and notifies administrators and credential owners.'
+    task :scan => :environment do
+      succeeded = Mailer.with_synched_deliveries do
+        Redmine::ApiAudit::Scanner.new.run
+      end
+      abort 'API audit scan finished with errors, see the log.' unless succeeded
+    end
+  end
+
   namespace :users do
     desc 'Removes registered users that have not been activated after a number of days. Use DAYS to set the number of days, defaults to 30 days.'
     task :prune => :environment do

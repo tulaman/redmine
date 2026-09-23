@@ -184,6 +184,10 @@ class QueriesController < ApplicationController
     redirect_to users_path(options)
   end
 
+  def redirect_to_api_audit_event_query(options)
+    redirect_to admin_api_audit_events_path(options)
+  end
+
   def query_layout
     @query&.layout || 'base'
   end

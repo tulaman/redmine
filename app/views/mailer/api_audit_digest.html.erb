@@ -1,0 +1,13 @@
+<p><%= l(:mail_body_api_audit_digest) %></p>
+<% @sections.each do |section| %>
+<p><strong><%= section[:title] %></strong></p>
+<ul>
+<% section[:items].each do |item| %>
+  <li><%= link_to item[:label], item[:url] %>: <%= item[:count] %></li>
+<% end %>
+</ul>
+<p><%= link_to l(:label_api_audit_log), section[:url] %></p>
+<% end %>
+<% if @omitted_count > 0 %>
+<p><%= l(:label_api_audit_digest_more, :count => @omitted_count) %></p>
+<% end %>

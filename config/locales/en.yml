@@ -1462,3 +1462,48 @@ en:
   reaction_text_x_other_users:
     one: "1 other"
     other: "%{count} others"
+  label_personal_access_token: Personal access token
+  label_personal_access_token_plural: Personal access tokens
+  label_personal_access_token_new: New personal access token
+  label_personal_access_token_expired: expired
+  field_expiration_date: Expiration date
+  field_expires_on: Expires
+  field_token: Token
+  setting_personal_access_token_max_lifetime: Maximum lifetime of personal access tokens
+  text_personal_access_token_max_lifetime: "Maximum lifetime: %{days} days"
+  text_personal_access_token_copy_now: "Make sure to copy your personal access token now. You won't be able to see it again."
+  error_personal_access_token_cannot_change_mail: "Email cannot be changed when authenticated with a personal access token."
+  label_api_audit_log: API audit log
+  setting_api_audit_log_enabled: Record REST API requests in the audit log
+  setting_api_audit_log_retention_days: Keep API audit log records for
+  field_switched_from_user: Switched from
+  field_auth_kind: Authentication
+  field_auth_failed: Authentication failed
+  field_oauth_application: OAuth application
+  field_http_method: Method
+  field_path: Path
+  label_api_audit_auth_kind_none: None
+  label_api_audit_auth_kind_api_key: API key
+  label_api_audit_auth_kind_pat: Personal access token
+  label_api_audit_auth_kind_oauth: OAuth
+  label_api_audit_auth_kind_basic: HTTP Basic
+  label_api_audit_deleted_record: "deleted (#%{id})"
+  text_api_audit_log_disabled: API audit logging is disabled. Enable it in Administration » Settings » API.
+  text_api_audit_log_csv_limit: "At most %{count} records are exported, use filters to narrow the export."
+  setting_api_audit_alert_failures_threshold: Alert on failed authentications from one IP address
+  setting_api_audit_alert_volume_threshold: Alert on requests by one user
+  setting_api_audit_alert_new_ip: Notify users of API access from a new IP address
+  text_api_audit_alert_failures_threshold: within 10 minutes, 0 to disable
+  text_api_audit_alert_volume_threshold: within 60 minutes, 0 to disable
+  text_api_audit_alert_scan: "Alerts are sent by the rake task redmine:api_audit:scan, which must run from cron: every 5 minutes is recommended, at most every 10 minutes."
+  mail_subject_api_audit_alert: Unusual REST API activity
+  mail_body_api_audit_digest: "Unusual REST API activity was detected:"
+  label_api_audit_digest_failures: "Failed API authentications per IP address in the last %{minutes} minutes"
+  label_api_audit_digest_volume: "API requests per user in the last %{minutes} minutes"
+  label_api_audit_digest_more: "and %{count} more"
+  mail_subject_api_audit_new_ip: REST API access from a new IP address
+  mail_body_api_audit_new_ip: "Your account was used to access the REST API from an IP address not seen before: %{ip}."
+  text_api_audit_new_ip_advice_pat: "If this was not you, delete the personal access token:"
+  text_api_audit_new_ip_advice_api_key: "If this was not you, reset your API access key:"
+  text_api_audit_new_ip_advice_oauth: "If this was not you, revoke the access of the application:"
+  text_api_audit_new_ip_advice_basic: "If this was not you, change your password:"

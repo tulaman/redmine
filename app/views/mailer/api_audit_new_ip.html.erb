@@ -1,0 +1,8 @@
+<p><%= l(:mail_body_api_audit_new_ip, :ip => @event.ip) %></p>
+
+<p><%= l(:label_date) %>: <strong><%= format_time @event.created_on %></strong><br />
+<%= l(:field_remote_ip) %>: <strong><%= @event.ip %></strong><br />
+<%= l(:field_auth_kind) %>: <strong><%= @credential %></strong><br />
+<%= l(:field_path) %>: <strong><%= @event.http_method %> <%= @event.path %></strong></p>
+
+<p><%= @advice %> <%= link_to @url, @url %></p>

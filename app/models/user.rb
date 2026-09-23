@@ -102,6 +102,7 @@ class User < Principal
   has_one :api_token, lambda {where "#{table.name}.action='api'"}, :class_name => 'Token'
   has_many :email_addresses, :dependent => :delete_all
   has_many :reactions, dependent: :delete_all
+  has_many :personal_access_tokens, :dependent => :delete_all
   belongs_to :auth_source
 
   scope :logged, lambda {where("#{User.table_name}.status <> #{STATUS_ANONYMOUS}")}
@@ -113,6 +114,8 @@ class User < Principal
   attr_accessor :last_before_login_on
   attr_accessor :remote_ip
   attr_writer   :oauth_scope
+  # Personal access token used to authenticate the current request, if any
+  attr_accessor :authenticated_personal_access_token
 
   LOGIN_LENGTH_LIMIT = 60
   MAIL_LENGTH_LIMIT = 254
@@ -745,6 +748,11 @@ class User < Principal
   # true if the user has signed in via oauth
   def authorized_by_oauth?
     !@oauth_scope.nil?
+  end
+
+  # true if the user has signed in with a personal access token
+  def authorized_by_personal_access_token?
+    !authenticated_personal_access_token.nil?
   end
 
   # Return true if the user is allowed to do the specified action on a specific context
