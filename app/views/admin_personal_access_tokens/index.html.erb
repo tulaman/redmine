@@ -5,7 +5,7 @@
   <label for="status"><%= l(:field_status) %>:</label>
   <%= select_tag 'status',
                  options_for_select([[l(:label_all), ''],
-                                     [l(:label_personal_access_token_active), 'active'],
+                                     [l(:status_active), 'active'],
                                      [l(:label_personal_access_token_expired), 'expired']], params[:status]),
                  :class => 'small' %>
   <label for="user"><%= l(:label_user) %>:</label>

@@ -61,6 +61,9 @@ class MyController < ApplicationController
       if @user.authorized_by_personal_access_token? && @user.mail_changed?
         @user.errors.add(:base, l(:error_personal_access_token_cannot_change_mail))
         respond_to do |format|
+          # Defence in depth: a PAT client has no session and no CSRF token, so in
+          # production an HTML PUT is already rejected by forgery protection before
+          # this point. This branch exists so the guard does not depend on that.
           format.html {render :action => :account, :status => :unprocessable_content}
           format.api  {render_validation_errors(@user)}
         end

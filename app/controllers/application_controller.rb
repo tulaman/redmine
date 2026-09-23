@@ -307,19 +307,6 @@ class ApplicationController < ActionController::Base
     true
   end
 
-  # Removes a PAT-shaped 'key' param from +url+ so it does not end up in the
-  # login redirect, the log, or the login form. Reads +params[:key]+, the
-  # same value the auth layer itself reads, so this never disagrees with
-  # what actually authenticated. A legacy API key is left untouched.
-  def strip_personal_access_token_from_url(url)
-    return url unless PersonalAccessToken.token_format?(params[:key])
-
-    query = request.query_parameters.except('key')
-    base = url.split('?', 2).first
-    query.empty? ? base : "#{base}?#{query.to_query}"
-  end
-  private :strip_personal_access_token_from_url
-
   def require_admin
     return unless require_login
 
@@ -773,6 +760,18 @@ class ApplicationController < ActionController::Base
     else
       User.find_by_api_key(key)
     end
+  end
+
+  # Removes a PAT-shaped 'key' param from +url+ so it does not end up in the
+  # login redirect, the log, or the login form. Reads +params[:key]+, the
+  # same value the auth layer itself reads, so this never disagrees with
+  # what actually authenticated. A legacy API key is left untouched.
+  def strip_personal_access_token_from_url(url)
+    return url unless PersonalAccessToken.token_format?(params[:key])
+
+    query = request.query_parameters.except('key')
+    base = url.split('?', 2).first
+    query.empty? ? base : "#{base}?#{query.to_query}"
   end
 
   # Renders a warning flash if obj has unsaved attachments

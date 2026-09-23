@@ -164,8 +164,8 @@ The design relies on the following, reader-facing, guarantees:
    a user's "show" API response (User#authorized_by_personal_access_token?
    suppresses api_key on both).
 6. A request authenticated with a personal access token cannot change
-   the account's own email address through My account (PUT/POST
-   /my/account); the request is rejected with a validation error instead.
+   the account's own email address through My account (PUT /my/account);
+   the request is rejected with a validation error instead.
    This closes off using a leaked token to redirect password-reset email
    to an attacker-controlled address.
 7. Redmine emails the token's owner whenever one of their tokens is
@@ -214,6 +214,12 @@ Limitations and notes
   PUT /users/:id is not guarded against personal-access-token
   authentication the way My account's own email change is; an
   administrator's token can still be used to change any user's email.
+  The same request can also set any user's password directly
+  (UsersController#update assigns params[:user][:password] whenever it
+  is present, and UsersController declares accept_api_auth for
+  :update), which is a shorter path to a full session than the
+  email-change / password-reset detour described in "Security model"
+  above.
 * A personal access token does not itself satisfy two-factor
   authentication. It is only ever issued from a web session that has
   already passed 2FA (where enabled) and sudo mode (where enabled); the
@@ -333,7 +339,7 @@ Happy path:
 
 Negative path, from the same setup:
 
-1. Expired token: in `bin/rails console`, since expires_on is a
+1. Expired token: in `bundle exec rails console`, since expires_on is a
    read-only attribute after creation (attr_readonly), force it directly
    with update_all rather than update/save:
      token = PersonalAccessToken.find_by(:token_last_chars => '<last 4
@@ -352,12 +358,27 @@ Negative path, from the same setup:
    every credential while it is disabled). Also visit
    /my/personal_access_tokens and /admin/personal_access_tokens in the
    browser; expect 403 on both. Re-enable the setting afterwards.
-5. Another user's token id: as a non-admin user, note the numeric id of
-   a token belonging to a different user (e.g. from its delete link's
-   URL), then issue DELETE /my/personal_access_tokens/<that id> while
-   authenticated as the first user; expect 404, not 403 (the lookup is
-   scoped to the current user's own tokens, so a foreign id looks
-   nonexistent rather than forbidden).
+5. Another user's token id: the ownership scope on destroy
+   (User.current.personal_access_tokens.find_by(:id => ...) in
+   PersonalAccessTokensController#find_personal_access_token) is covered
+   by the automated test
+   test_destroy_foreign_token_should_respond_with_404 in
+   test/functional/personal_access_tokens_controller_test.rb; this is not
+   practical to exercise by hand: an HTML DELETE from curl has no session
+   and no CSRF token, so it is rejected with 422 before the scoped lookup
+   runs, the .json form 404s from routing (the route is declared with
+   :format => false) rather than from the ownership scope, and a
+   non-admin has no way to see a foreign token's id in the UI in the
+   first place. To try it manually anyway, get a foreign id from
+   `bundle exec rails console`
+   (User.find_by_login('<other login>').personal_access_tokens.first.id),
+   then, signed in as the first user with My account -> Personal access
+   tokens open (so a valid CSRF token is on the page) and sudo mode off,
+   use the browser's console to fire the DELETE with that token, e.g.:
+     fetch('/my/personal_access_tokens/<foreign id>', {method: 'DELETE',
+       headers: {'X-CSRF-Token':
+         document.querySelector('meta[name="csrf-token"]').content}})
+   Expect 404, not 403.
 6. "?key=" filtering in the log: with the REST API enabled again, run
      curl "http://localhost:3000/issues.json?key=redmine_pat_<40 chars>"
    then check log/development.log for that request's "Started GET" and

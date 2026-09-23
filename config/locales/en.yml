@@ -1465,12 +1465,11 @@ en:
   label_personal_access_token: Personal access token
   label_personal_access_token_plural: Personal access tokens
   label_personal_access_token_new: New personal access token
-  label_personal_access_token_active: active
   label_personal_access_token_expired: expired
   field_expiration_date: Expiration date
   field_expires_on: Expires
   field_token: Token
   setting_personal_access_token_max_lifetime: Maximum lifetime of personal access tokens
-  text_personal_access_token_max_lifetime: "Maximum lifetime: %{count} days"
+  text_personal_access_token_max_lifetime: "Maximum lifetime: %{days} days"
   text_personal_access_token_copy_now: "Make sure to copy your personal access token now. You won't be able to see it again."
   error_personal_access_token_cannot_change_mail: "Email cannot be changed when authenticated with a personal access token."

@@ -12,7 +12,7 @@
                        :min => (User.current.today + 1).iso8601,
                        :max => PersonalAccessToken.latest_expiration_date(User.current).iso8601 %>
       <%= calendar_for('personal_access_token_expiration_date') %>
-      <em class="info"><%= l(:text_personal_access_token_max_lifetime, :count => PersonalAccessToken.max_lifetime) %></em>
+      <em class="info"><%= l(:text_personal_access_token_max_lifetime, :days => PersonalAccessToken.max_lifetime) %></em>
     </p>
   </div>
   <%= submit_tag l(:button_create) %>
