@@ -623,6 +623,43 @@ class QueriesControllerTest < Redmine::ControllerTest
     assert_redirected_to :controller => 'admin', :action => 'projects', :query_id => q.id
   end
 
+  def test_create_api_audit_event_query_should_redirect_to_api_audit_log
+    @request.session[:user_id] = 1
+
+    q = new_record(ApiAuditEventQuery) do
+      post(
+        :create,
+        :params => {
+          :type => 'ApiAuditEventQuery',
+          :default_columns => '1',
+          :f => ['auth_failed'],
+          :op => {'auth_failed' => '='},
+          :v => {'auth_failed' => ['1']},
+          :query => {'name' => 'Failed API calls', 'visibility' => '2'}
+        }
+      )
+    end
+
+    assert_redirected_to :controller => 'admin_api_audit_events', :action => 'index', :query_id => q.id
+  end
+
+  def test_new_api_audit_event_query_should_not_expose_users_to_non_admin
+    @request.session[:user_id] = 2
+
+    get(
+      :new,
+      :params => {
+        :type => 'ApiAuditEventQuery',
+        :f => ['user_id'],
+        :op => {'user_id' => '='},
+        :v => {'user_id' => ['1']}
+      }
+    )
+
+    assert_not_include 'Robert Hill', response.body
+    assert_not_include 'Dave2 Lopper2', response.body
+  end
+
   def test_edit_global_public_query
     @request.session[:user_id] = 1
     get(:edit, :params => {:id => 4})

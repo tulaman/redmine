@@ -184,6 +184,17 @@ class AdminControllerTest < Redmine::ControllerTest
     end
   end
 
+  def test_admin_menu_should_link_to_api_audit_log_when_rest_api_is_enabled
+    with_settings :rest_api_enabled => '1' do
+      get :index
+      assert_select 'div#admin-menu a[href=?]', '/admin/api_audit_events'
+    end
+    with_settings :rest_api_enabled => '0' do
+      get :index
+      assert_select 'div#admin-menu a[href=?]', '/admin/api_audit_events', 0
+    end
+  end
+
   def test_admin_menu_plugin_extension
     Redmine::MenuManager.map :admin_menu do |menu|
       menu.push :test_admin_menu_plugin_extension, '/foo/bar', :caption => 'Test'

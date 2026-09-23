@@ -1476,3 +1476,17 @@ en:
   label_api_audit_log: API audit log
   setting_api_audit_log_enabled: Record REST API requests in the audit log
   setting_api_audit_log_retention_days: Keep API audit log records for
+  field_switched_from_user: Switched from
+  field_auth_kind: Authentication
+  field_auth_failed: Authentication failed
+  field_oauth_application: OAuth application
+  field_http_method: Method
+  field_path: Path
+  label_api_audit_auth_kind_none: None
+  label_api_audit_auth_kind_api_key: API key
+  label_api_audit_auth_kind_pat: Personal access token
+  label_api_audit_auth_kind_oauth: OAuth
+  label_api_audit_auth_kind_basic: HTTP Basic
+  label_api_audit_deleted_record: "deleted (#%{id})"
+  text_api_audit_log_disabled: API audit logging is disabled. Enable it in Administration » Settings » API.
+  text_api_audit_log_csv_limit: "At most %{count} records are exported, use filters to narrow the export."
