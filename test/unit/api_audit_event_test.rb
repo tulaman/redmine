@@ -63,6 +63,15 @@ class ApiAuditEventTest < ActiveSupport::TestCase
     assert event.reload.path.valid_encoding?
   end
 
+  def test_should_scrub_invalid_utf8_from_binary_path
+    path = "/issues/\xFF.json".b
+    event = ApiAuditEvent.create!(valid_attributes.merge(:path => path))
+    reloaded = event.reload.path
+    assert reloaded.valid_encoding?
+    assert_equal Encoding::UTF_8, reloaded.encoding
+    assert_equal "/issues/�.json", reloaded
+  end
+
   def test_should_require_http_method_within_limit
     event = ApiAuditEvent.new(valid_attributes.merge(:http_method => 'A' * 11))
     assert_not event.valid?

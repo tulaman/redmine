@@ -37,6 +37,6 @@ class ApiAuditEvent < ApplicationRecord
   private
 
   def truncate_path
-    self.path = path.scrub[0, PATH_LENGTH_LIMIT] if path
+    self.path = path.dup.force_encoding(Encoding::UTF_8).scrub[0, PATH_LENGTH_LIMIT] if path
   end
 end
