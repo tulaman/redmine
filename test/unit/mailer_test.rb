@@ -1213,6 +1213,81 @@ class MailerTest < ActiveSupport::TestCase
                  Mailer.email_addresses(User.find(2)).sort
   end
 
+  def test_api_audit_digest
+    findings = [{'kind' => 'volume', 'subject' => '2', 'count' => 1500, 'minutes' => 60},
+                {'kind' => 'failures', 'subject' => '10.0.0.9', 'count' => 12, 'minutes' => 10}]
+    Mailer.api_audit_digest(User.find(1), findings, 0).deliver_now
+    mail = last_email
+    assert_equal ['admin@somenet.foo'], mail.to
+    assert_equal '[Redmine] Unusual REST API activity', mail.subject
+    assert_mail_body_match 'Failed API authentications per IP address in the last 10 minutes', mail
+    assert_mail_body_match '10.0.0.9: 12', mail
+    assert_mail_body_match 'API requests per user in the last 60 minutes', mail
+    assert_mail_body_match 'jsmith: 1500', mail
+    assert_mail_body_match '/admin/api_audit_events?', mail
+    assert_mail_body_no_match 'more', mail
+    assert_select_email do
+      assert_select 'a[href*=?][href*=?]', 'f%5B%5D=auth_failed', 'v%5Bauth_failed%5D%5B%5D=1'
+      assert_select 'a[href*=?][href*=?]', 'f%5B%5D=ip', 'v%5Bip%5D%5B%5D=10.0.0.9', :text => '10.0.0.9'
+      assert_select 'a[href*=?][href*=?]', 'f%5B%5D=user_id', 'v%5Buser_id%5D%5B%5D=2', :text => 'jsmith'
+    end
+  end
+
+  def test_api_audit_digest_should_show_omitted_findings
+    findings = [{'kind' => 'failures', 'subject' => '10.0.0.9', 'count' => 12, 'minutes' => 10}]
+    Mailer.api_audit_digest(User.find(1), findings, 5).deliver_now
+    assert_mail_body_match 'and 5 more', last_email
+  end
+
+  def test_api_audit_digest_for_deleted_user
+    findings = [{'kind' => 'volume', 'subject' => '999', 'count' => 1500, 'minutes' => 60}]
+    Mailer.api_audit_digest(User.find(1), findings, 0).deliver_now
+    assert_mail_body_match '#999: 1500', last_email
+  end
+
+  def test_api_audit_digest_should_escape_subjects
+    findings = [{'kind' => 'failures', 'subject' => '<b>x</b>', 'count' => 3, 'minutes' => 10}]
+    Mailer.api_audit_digest(User.find(1), findings, 0).deliver_now
+    assert_select_email do
+      assert_select 'b', 0
+    end
+  end
+
+  def test_api_audit_new_ip
+    user = User.find(2)
+    token = PersonalAccessToken.create!(:user => user, :name => 'CI', :expiration_date => user.today + 30)
+    event = ApiAuditEvent.create!(:auth_kind => 'pat', :user_id => 2, :personal_access_token_id => token.id,
+                                  :http_method => 'GET', :path => '/issues.json', :status => 200, :ip => '10.0.0.2')
+    Mailer.api_audit_new_ip(user, event).deliver_now
+    mail = last_email
+    assert_equal ['jsmith@somenet.foo'], mail.to
+    assert_mail_body_match '10.0.0.2', mail
+    assert_mail_body_match token.masked_value, mail
+    assert_mail_body_match '/my/personal_access_tokens', mail
+    assert_mail_body_match 'delete the personal access token', mail
+    assert_not_include token.plaintext_token, mail.encoded
+  end
+
+  def test_api_audit_new_ip_with_basic_authentication
+    user = User.find(2)
+    event = ApiAuditEvent.create!(:auth_kind => 'basic', :user_id => 2, :http_method => 'GET',
+                                  :path => '/issues.json', :status => 200, :ip => '10.0.0.2')
+    Mailer.api_audit_new_ip(user, event).deliver_now
+    mail = last_email
+    assert_mail_body_match 'change your password', mail
+    assert_mail_body_match '/my/password', mail
+    assert_mail_body_no_match 'personal access token', mail
+  end
+
+  def test_api_audit_new_ip_with_api_key
+    user = User.find(2)
+    event = ApiAuditEvent.create!(:auth_kind => 'api_key', :user_id => 2, :http_method => 'GET',
+                                  :path => '/issues.json', :status => 200, :ip => '10.0.0.2')
+    Mailer.api_audit_new_ip(user, event).deliver_now
+    assert_mail_body_match 'reset your API access key', last_email
+    assert_mail_body_match '/my/account', last_email
+  end
+
   private
 
   # Returns an array of email addresses to which emails were sent

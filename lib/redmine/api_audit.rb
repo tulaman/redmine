@@ -28,10 +28,12 @@ module Redmine
       days > 0 ? days : DEFAULT_RETENTION_DAYS
     end
 
-    # Deletes audit records older than the retention period and returns the
-    # number of deleted events
+    # Deletes audit events and alerts older than the retention period and
+    # returns the number of deleted events
     def self.prune(now=Time.now)
-      ApiAuditEvent.prune(now - retention_days.days)
+      before = now - retention_days.days
+      ApiAuditAlert.prune(before)
+      ApiAuditEvent.prune(before)
     end
   end
 end

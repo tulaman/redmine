@@ -53,4 +53,13 @@ class Redmine::ApiAuditTest < ActiveSupport::TestCase
     assert_not ApiAuditEvent.exists?(old.id)
     assert ApiAuditEvent.exists?(recent.id)
   end
+
+  def test_prune_should_delete_old_alerts
+    now = Time.now
+    old = ApiAuditAlert.create!(:kind => 'failures', :subject => '10.0.0.9', :created_on => now - 91.days)
+    recent = ApiAuditAlert.create!(:kind => 'failures', :subject => '10.0.0.8', :created_on => now - 1.day)
+    Redmine::ApiAudit.prune(now)
+    assert_not ApiAuditAlert.exists?(old.id)
+    assert ApiAuditAlert.exists?(recent.id)
+  end
 end

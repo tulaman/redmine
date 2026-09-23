@@ -347,6 +347,17 @@ api_audit_log_retention_days:
   format: int
   default: 90
   security_notifications: 1
+api_audit_alert_failures_threshold:
+  format: int
+  default: 10
+  security_notifications: 1
+api_audit_alert_volume_threshold:
+  format: int
+  default: 1000
+  security_notifications: 1
+api_audit_alert_new_ip:
+  default: 1
+  security_notifications: 1
 default_notification_option:
   default: 'only_assigned'
 emails_header:

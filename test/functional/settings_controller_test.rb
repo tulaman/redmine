@@ -318,4 +318,13 @@ class SettingsControllerTest < Redmine::ControllerTest
     assert_equal '1', Setting.mail_handler_enable_regex_delimiters
     assert_equal 'On .*, .* at .*, .* <.*<mailto:.*>> wrote:', Setting.mail_handler_body_delimiters
   end
+
+  def test_edit_api_should_show_api_audit_alert_settings
+    get :edit, :params => {:tab => 'api'}
+    assert_response :success
+    assert_select 'input[name=?]', 'settings[api_audit_alert_failures_threshold]'
+    assert_select 'input[name=?]', 'settings[api_audit_alert_volume_threshold]'
+    assert_select 'input[type=checkbox][name=?]', 'settings[api_audit_alert_new_ip]'
+    assert_select 'fieldset > p > em.info', :text => /redmine:api_audit:scan.*every 5 minutes/
+  end
 end

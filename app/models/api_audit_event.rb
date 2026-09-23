@@ -29,6 +29,17 @@ class ApiAuditEvent < ApplicationRecord
   belongs_to :personal_access_token, :optional => true
   belongs_to :oauth_application, :class_name => 'Doorkeeper::Application', :optional => true
 
+  scope :since, lambda {|time| where("#{table_name}.created_on >= ?", time)}
+  scope :failed, lambda {where(:auth_failed => true)}
+  scope :succeeded, lambda {where(:auth_failed => false)}
+  scope :with_credential, lambda {where.not(:auth_kind => 'none')}
+
+  # SQL expression of the id of the user who owns the credential, including
+  # requests made as another user with X-Redmine-Switch-User. Only meant for
+  # GROUP BY: to filter by owner, query switched_from_user_id = id and
+  # (switched_from_user_id IS NULL AND user_id = id) so that indexes are used
+  CREDENTIAL_OWNER_SQL = "COALESCE(#{table_name}.switched_from_user_id, #{table_name}.user_id)"
+
   before_validation :truncate_path
 
   validates_inclusion_of :auth_kind, :in => AUTH_KINDS

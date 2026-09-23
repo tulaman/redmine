@@ -12,6 +12,12 @@
 <legend><%= l(:label_api_audit_log) %></legend>
 <p><%= setting_check_box :api_audit_log_enabled %></p>
 <p><%= setting_text_field :api_audit_log_retention_days, :size => 6 %> <%= l(:label_day_plural) %></p>
+<p><%= setting_text_field :api_audit_alert_failures_threshold, :size => 6 %>
+<em class="info"><%= l(:text_api_audit_alert_failures_threshold) %></em></p>
+<p><%= setting_text_field :api_audit_alert_volume_threshold, :size => 6 %>
+<em class="info"><%= l(:text_api_audit_alert_volume_threshold) %></em></p>
+<p><%= setting_check_box :api_audit_alert_new_ip %></p>
+<p><em class="info"><%= l(:text_api_audit_alert_scan) %></em></p>
 </fieldset>
 
 <%= submit_tag l(:button_save) %>

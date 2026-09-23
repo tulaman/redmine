@@ -45,6 +45,14 @@ namespace :redmine do
     task :prune => :environment do
       Redmine::ApiAudit.prune
     end
+
+    desc 'Detects anomalous API activity and notifies administrators and credential owners.'
+    task :scan => :environment do
+      succeeded = Mailer.with_synched_deliveries do
+        Redmine::ApiAudit::Scanner.new.run
+      end
+      abort 'API audit scan finished with errors, see the log.' unless succeeded
+    end
   end
 
   namespace :users do

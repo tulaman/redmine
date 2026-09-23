@@ -553,6 +553,64 @@ class Mailer < ActionMailer::Base
     end
   end
 
+  # Builds a digest mail to an administrator about anomalous API activity.
+  # findings is an array of hashes with the keys 'kind' ('failures', where
+  # 'subject' is an IP address, or 'volume', where 'subject' is a user id),
+  # 'subject', 'count' and 'minutes' (the detection window). omitted_count
+  # is the number of findings left out of the digest.
+  def api_audit_digest(user, findings, omitted_count)
+    @sections = []
+    {'failures' => ['ip', '1'], 'volume' => ['user_id', '0']}.each do |kind, (filter, auth_failed)|
+      section_findings = findings.select {|f| f['kind'] == kind}
+      next if section_findings.empty?
+
+      users = kind == 'volume' ? User.where(:id => section_findings.pluck('subject')).index_by {|u| u.id.to_s} : {}
+      @sections << {
+        :title => l("label_api_audit_digest_#{kind}", :minutes => section_findings.first['minutes']),
+        :url => api_audit_log_url('auth_failed' => auth_failed),
+        :items => section_findings.map do |f|
+          {:label => kind == 'volume' ? (users[f['subject']]&.login || "##{f['subject']}") : f['subject'],
+           :count => f['count'],
+           :url => api_audit_log_url('auth_failed' => auth_failed, filter => f['subject'])}
+        end
+      }
+    end
+    @omitted_count = omitted_count
+    mail :to => user,
+      :subject => "[#{Setting.app_title}] #{l(:mail_subject_api_audit_alert)}"
+  end
+
+  # Sends a digest of anomalous API activity to an administrator
+  def self.deliver_api_audit_digest(user, findings, omitted_count)
+    api_audit_digest(user, findings, omitted_count).deliver_later
+  end
+
+  # Builds a mail to user about a successful API request made with their
+  # credentials from an IP address they never used before
+  def api_audit_new_ip(user, event)
+    @event = event
+    token = event.personal_access_token
+    @credential = token ? "#{token.name} (#{token.masked_value})" : l("label_api_audit_auth_kind_#{event.auth_kind}")
+    @advice, @url =
+      case event.auth_kind
+      when 'pat'
+        [l(:text_api_audit_new_ip_advice_pat), url_for(:controller => 'personal_access_tokens', :action => 'index')]
+      when 'oauth'
+        [l(:text_api_audit_new_ip_advice_oauth), oauth_authorized_applications_url]
+      when 'basic'
+        [l(:text_api_audit_new_ip_advice_basic), url_for(:controller => 'my', :action => 'password')]
+      else
+        [l(:text_api_audit_new_ip_advice_api_key), url_for(:controller => 'my', :action => 'account')]
+      end
+    mail :to => user,
+      :subject => "[#{Setting.app_title}] #{l(:mail_subject_api_audit_new_ip)}"
+  end
+
+  # Notifies user about API access with their credentials from a new IP address
+  def self.deliver_api_audit_new_ip(user, event)
+    api_audit_new_ip(user, event).deliver_later
+  end
+
   # Build a test email to user.
   def test_email(user)
     @url = url_for(:controller => 'welcome')
@@ -771,6 +829,15 @@ class Mailer < ActionMailer::Base
   end
 
   private
+
+  # URL of the API audit log of the last day, filtered by the given
+  # filter names and values
+  def api_audit_log_url(filters)
+    filters = {'created_on' => '1'}.merge(filters)
+    url_for(:controller => 'admin_api_audit_events', :action => 'index', :set_filter => 1,
+            :f => filters.keys, :op => filters.keys.index_with {|name| name == 'created_on' ? '>t-' : '='},
+            :v => filters.transform_values {|value| [value]})
+  end
 
   # Appends a Redmine header field (name is prepended with 'X-Redmine-')
   def redmine_headers(h)

@@ -1490,3 +1490,20 @@ en:
   label_api_audit_deleted_record: "deleted (#%{id})"
   text_api_audit_log_disabled: API audit logging is disabled. Enable it in Administration » Settings » API.
   text_api_audit_log_csv_limit: "At most %{count} records are exported, use filters to narrow the export."
+  setting_api_audit_alert_failures_threshold: Alert on failed authentications from one IP address
+  setting_api_audit_alert_volume_threshold: Alert on requests by one user
+  setting_api_audit_alert_new_ip: Notify users of API access from a new IP address
+  text_api_audit_alert_failures_threshold: within 10 minutes, 0 to disable
+  text_api_audit_alert_volume_threshold: within 60 minutes, 0 to disable
+  text_api_audit_alert_scan: "Alerts are sent by the rake task redmine:api_audit:scan, which must run from cron: every 5 minutes is recommended, at most every 10 minutes."
+  mail_subject_api_audit_alert: Unusual REST API activity
+  mail_body_api_audit_digest: "Unusual REST API activity was detected:"
+  label_api_audit_digest_failures: "Failed API authentications per IP address in the last %{minutes} minutes"
+  label_api_audit_digest_volume: "API requests per user in the last %{minutes} minutes"
+  label_api_audit_digest_more: "and %{count} more"
+  mail_subject_api_audit_new_ip: REST API access from a new IP address
+  mail_body_api_audit_new_ip: "Your account was used to access the REST API from an IP address not seen before: %{ip}."
+  text_api_audit_new_ip_advice_pat: "If this was not you, delete the personal access token:"
+  text_api_audit_new_ip_advice_api_key: "If this was not you, reset your API access key:"
+  text_api_audit_new_ip_advice_oauth: "If this was not you, revoke the access of the application:"
+  text_api_audit_new_ip_advice_basic: "If this was not you, change your password:"
